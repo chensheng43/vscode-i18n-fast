@@ -151,7 +151,10 @@
     "publish:openvsx": "npx zx scripts/publish.mjs --tasks publishToOpenVsx",
     "publish:github": "npx zx scripts/publish.mjs --tasks gitPush,publishToGithub",
     "package": "pnpm npx vsce package --no-dependencies",
-    "package:alpha": "npx zx scripts/publish.mjs --tasks packageVsix --release prerelease --identifier alpha"
+    "package:alpha": "npx zx scripts/publish.mjs --tasks packageVsix --release prerelease --identifier alpha",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@babel/types": "7.27.6",
@@ -159,15 +162,18 @@
     "@types/babel__traverse": "^7.20.6",
     "@types/crypto-js": "^4.2.2",
     "@types/lodash": "^4.17.7",
-    "@types/node": "16.x",
+    "@types/node": "~20.19.39",
     "@types/qs": "^6.9.15",
     "@types/vscode": "^1.73.0",
     "@typescript-eslint/eslint-plugin": "^5.42.0",
     "@typescript-eslint/parser": "^5.42.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "eslint": "^8.26.0",
     "semver": "^7.7.2",
     "ts-loader": "^9.5.2",
     "typescript": "^5.7.3",
+    "vite": "^8.0.9",
+    "vitest": "^2.1.9",
     "webpack": "^5.99.9",
     "webpack-cli": "^6.0.1",
     "zx": "^8.5.4"
