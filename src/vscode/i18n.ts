@@ -1,4 +1,4 @@
-import { workspace } from "vscode";
+import { Uri as VsCodeUri } from "vscode";
 
 import Hook from './hook';
 import { getConfig } from "./config";
@@ -7,6 +7,7 @@ import { getWorkspaceKey } from './utils';
 import Watcher, { WATCH_STATE } from './watcher';
 
 import type { Uri } from 'vscode';
+import type { Host } from '@core/host';
 import type { I18nGroup } from "./types";
 
 type PathMap = Map<string, I18nGroup[]>;
@@ -16,11 +17,21 @@ export default class I18n {
     private i18nMap: WorkspaceMap = new Map();
     private watcherMap: Map<string, Watcher> = new Map();
     private _onChange?: () => void;
+    private host?: Host;
     private static instance: I18n;
 
     static getInstance(): I18n {
         if (!I18n.instance) I18n.instance = new I18n();
         return I18n.instance;
+    }
+
+    setHost(h: Host): void {
+        this.host = h;
+    }
+
+    private get h(): Host {
+        if (!this.host) throw new Error('Host not set (did extension.ts call setHost?)');
+        return this.host;
     }
 
     private disposeMap(workspaceKey: string) {
@@ -78,9 +89,9 @@ export default class I18n {
         };
 
         // init
-        const i18nFileUris = await workspace.findFiles(i18nFilePattern, FILE_IGNORE);
-        for (const uri of i18nFileUris) {
-            await watchCallback(WATCH_STATE.CHANGE, uri);
+        const i18nFilePaths = await this.h.findFiles(i18nFilePattern, FILE_IGNORE);
+        for (const filePath of i18nFilePaths) {
+            await watchCallback(WATCH_STATE.CHANGE, VsCodeUri.file(filePath));
         }
 
         const watcher = await new Watcher().watch(i18nFilePattern, watchCallback);

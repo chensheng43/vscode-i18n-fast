@@ -11,6 +11,8 @@ import { getConfig } from './config';
 import { showMessage } from './tips';
 import { FILE_IGNORE } from './constant';
 import Watcher, { WATCH_STATE } from './watcher';
+
+import type { Host } from '@core/host';
 import {
     convert2pinyin,
     isInJsxElement,
@@ -38,11 +40,21 @@ class Hook {
     private watcherMap: Map<string, Watcher> = new Map();
     private loading = false;
     private _onChange?: () => void;
+    private host?: Host;
     private static instance: Hook;
 
     static getInstance(): Hook {
         if (!Hook.instance) Hook.instance = new Hook();
         return Hook.instance;
+    }
+
+    setHost(h: Host): void {
+        this.host = h;
+    }
+
+    private get h(): Host {
+        if (!this.host) throw new Error('Host not set (did extension.ts call setHost?)');
+        return this.host;
     }
 
     private disposeMap(workspaceKey: string) {
@@ -107,8 +119,8 @@ class Hook {
             };
 
             // init
-            const [file] = await vscode.workspace.findFiles(hookFilePattern, FILE_IGNORE);
-            if (file) watchCallback(WATCH_STATE.CHANGE, file);
+            const [filePath] = await this.h.findFiles(hookFilePattern, FILE_IGNORE);
+            if (filePath) watchCallback(WATCH_STATE.CHANGE, vscode.Uri.file(filePath));
 
             const watcher = await new Watcher().watch(hookFilePattern, watchCallback);
             this.watcherMap.set(workspaceKey, watcher);

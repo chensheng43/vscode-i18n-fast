@@ -7,12 +7,18 @@ import { getWorkspaceKey, FileSnapshotStack } from './utils';
 import { I18nJumpProvider, MemoryDocumentProvider } from './provider';
 import { COMMAND_CONVERT_KEY, COMMAND_PASTE_KEY, COMMAND_UNDO_KEY, PLUGIN_NAME } from './constant';
 import { createOnCommandConvertHandler, createOnCommandPasteHandler, createOnCommandUndoHandler, createOnDidChangeAddDecorationHandler } from './handler';
+import { VsCodeHost } from './vscodeHost';
 
 import type { ExtensionContext } from 'vscode';
 
 export async function activate(context: ExtensionContext) {
 	const onDidChangeAddDecorationHandler = createOnDidChangeAddDecorationHandler();
 	const debouncedOnDidChangeAddDecorationHandler = debounce(onDidChangeAddDecorationHandler, 300);
+
+	const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+	const host = new VsCodeHost(workspaceRoot);
+	Hook.getInstance().setHost(host);
+	I18n.getInstance().setHost(host);
 
 	I18n.getInstance().onChange(() => debouncedOnDidChangeAddDecorationHandler());
 	Hook.getInstance().onChange(() => I18n.getInstance().reload());
