@@ -38,4 +38,32 @@ describe('FileSnapshotStack', () => {
     const token = stack.seal();
     expect(stack.undo(token)).toEqual([{ path: '/abs/a.json', content: 'v1' }]);
   });
+
+  it('record() 在 next() 之前抛错', () => {
+    expect(() => stack.record('/abs/a', 'x')).toThrow(/before next/);
+  });
+
+  it('seal() 在 next() 之前抛错', () => {
+    expect(() => stack.seal()).toThrow(/before next/);
+  });
+
+  it('undo() 在空栈无 token 时返 undefined', () => {
+    expect(stack.undo()).toBeUndefined();
+  });
+
+  it('clear() 重置 frames 和 open frame', () => {
+    stack.next();
+    stack.record('/abs/a', 'v');
+    stack.clear();
+    expect(stack.size()).toBe(0);
+    expect(() => stack.seal()).toThrow(/before next/);
+  });
+
+  it('size() 不包含未 seal 的 open frame', () => {
+    stack.next();
+    stack.record('/abs/a', 'v');
+    expect(stack.size()).toBe(0);
+    stack.seal();
+    expect(stack.size()).toBe(1);
+  });
 });

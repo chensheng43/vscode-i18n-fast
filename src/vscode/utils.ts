@@ -8,6 +8,7 @@ import stringWidth from 'string-width';
 
 import { SupportType } from './types/enums';
 import { showStatusBar, hideStatusBar } from './tips';
+import { FileSnapshotStack as CoreFileSnapshotStack } from '@core/snapshot/fileSnapshotStack';
 
 import type { TextDocument, Disposable } from 'vscode';
 import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
@@ -326,12 +327,17 @@ export const isInJsxAttribute = (input: string | Node, start: number, end: numbe
   return inJsxAttribute;
 };
 
-import { FileSnapshotStack as CoreFileSnapshotStack } from '@core/snapshot/fileSnapshotStack';
-
 /**
- * VS Code bridge for FileSnapshotStack. Preserves the legacy singleton + push/pop API
- * that existing call sites in src/vscode/ rely on, delegating storage to the core
- * VS Code-free implementation at @core/snapshot/fileSnapshotStack.
+ * Backward-compatibility bridge over `@core/snapshot/fileSnapshotStack`.
+ *
+ * Preserves the legacy singleton + push/pop API that existing call sites in
+ * `src/vscode/` rely on, delegating actual storage to the VS Code-free core.
+ *
+ * Notes:
+ * - `seal()` is intentionally NOT exposed: frame lifecycle is managed
+ *   internally by `next()` / `push()` / `pop()` to keep the legacy semantics.
+ * - `uriRegistryStack` MUST stay index-aligned with the core's `frames` array.
+ *   Any push/shift to one MUST be mirrored to the other.
  */
 export class FileSnapshotStack implements Disposable {
   private static instance: FileSnapshotStack;
@@ -353,6 +359,7 @@ export class FileSnapshotStack implements Disposable {
   }
 
   pop(): Map<Uri, string> | undefined {
+    // TODO(task-10): simplify by returning Map<string, string> and calling Uri.file() in handler.ts — this removes the uriRegistryStack entirely once handler.ts is refactored in a later task.
     // seal any still-open frame so it becomes poppable, matching legacy behavior
     // where pop() can reach the frame most recently opened by next()
     if (this.frameOpen) {
@@ -380,6 +387,7 @@ export class FileSnapshotStack implements Disposable {
   }
 
   push(uri: Uri, snapshot: string) {
+    // Calling push() before next() implicitly opens a frame — intentional improvement over the original (which silently discarded the snapshot).
     if (!this.frameOpen) {
       // legacy callers may push without a preceding next(); open an implicit frame
       this.core.next();
