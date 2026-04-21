@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import * as z from 'zod/v4';
 
 import { FsHost } from './fsHost';
 import { buildRuntime } from './runtime';
+import { handleQueryI18n } from './tools/queryI18n';
 import { installVscodeShim } from './vscodeShim';
 
 function parseArgs(argv: string[]): { workspace: string } {
@@ -26,6 +28,19 @@ async function main() {
   }, async () => ({
     content: [{ type: 'text', text: `ok @ ${host.workspaceRoot}` }],
   }));
+
+
+  server.registerTool('query_i18n', {
+    description: '反查 i18n key 原文，或判断文本是否已有对应 key。',
+    inputSchema: {
+      keys: z.array(z.string()).optional(),
+      text: z.string().optional(),
+      locale: z.string().optional(),
+    },
+  }, async (args) => ({
+    content: [{ type: 'text', text: JSON.stringify(await handleQueryI18n(runtime, args)) }],
+  }));
+
 
   await server.connect(new StdioServerTransport());
 }
