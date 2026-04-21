@@ -1,209 +1,255 @@
-import * as vscode from 'vscode';
-import * as uuid from 'uuid';
 import * as babelParser from '@babel/parser';
 import traverse from '@babel/traverse';
+import crypto from 'crypto-js';
 import lodash from 'lodash';
 import qs from 'qs';
-import crypto from 'crypto-js';
+import * as uuid from 'uuid';
+import * as vscode from 'vscode';
 
-import I18n from './i18n';
+import { HookLoader } from '@core/hook/loader';
+import { HookManager } from '@core/hook/manager';
+import type { ConvertGroup as CoreConvertGroup } from '@core/types';
+import type { Host, Disposable } from '@core/host';
+
 import { getConfig } from './config';
-import { showMessage } from './tips';
 import { FILE_IGNORE } from './constant';
-import Watcher, { WATCH_STATE } from './watcher';
-
-import type { Host } from '@core/host';
+import I18n from './i18n';
+import { showMessage } from './tips';
 import {
-    convert2pinyin,
-    isInJsxElement,
-    isInJsxAttribute,
-    writeFileByEditor,
-    getICUMessageFormatAST,
-    safeCall,
-    asyncSafeCall,
-    getWorkspaceKey,
-    getLoading,
-    setLoading,
-    dynamicRequire,
-    matchChinese,
+  asyncSafeCall,
+  convert2pinyin,
+  getICUMessageFormatAST,
+  getLoading,
+  isInJsxAttribute,
+  isInJsxElement,
+  matchChinese,
+  safeCall,
+  setLoading,
+  writeFileByEditor,
 } from './utils';
 
-import type { TextDocument, Uri, ExtensionContext } from 'vscode'
+import type { ExtensionContext, TextDocument, Uri } from 'vscode';
 import type { MatchType } from './types/enums';
 import type { ConvertGroup, I18nGroup } from './types';
 
-type WorkspaceHook = Map<string, Record<string, (context: Record<string, any>) => any>>;
+const adaptLegacyHookModule = (module: Record<string, unknown>) => ({
+  ...module,
+  match: typeof module.match === 'function'
+    ? (ctx: Record<string, unknown>) => (module.match as (ctx: Record<string, unknown>) => unknown)(ctx)
+    : undefined,
+  convert: typeof module.convert === 'function'
+    ? (groups: CoreConvertGroup[], ctx: Record<string, unknown>) => (module.convert as (ctx: Record<string, unknown>) => unknown)({
+        ...ctx,
+        convertGroups: groups,
+      })
+    : undefined,
+  write: typeof module.write === 'function'
+    ? (groups: CoreConvertGroup[], ctx: Record<string, unknown>) => (module.write as (ctx: Record<string, unknown>) => unknown)({
+        ...ctx,
+        convertGroups: groups,
+      })
+    : undefined,
+  collectI18n: typeof module.collectI18n === 'function'
+    ? (_content: string, filePath: string, ctx: Record<string, unknown>) => (module.collectI18n as (ctx: Record<string, unknown>) => unknown)({
+        ...ctx,
+        i18nFileUri: vscode.Uri.file(filePath),
+      })
+    : undefined,
+}) as any;
+
+function toCoreGroup(document: TextDocument, group: ConvertGroup, index: number): CoreConvertGroup {
+  return {
+    id: `legacy_${index}`,
+    filePath: document.uri.fsPath,
+    range: group.range
+      ? {
+          start: document.offsetAt(group.range.start),
+          end: document.offsetAt(group.range.end),
+        }
+      : { start: 0, end: 0 },
+    originalText: group.i18nValue,
+    key: group.i18nKey,
+    replacementText: group.overwriteText,
+  };
+}
+
+function toLegacyGroup(document: TextDocument, group: CoreConvertGroup): ConvertGroup {
+  return {
+    i18nValue: group.originalText,
+    matchedText: document.getText(new vscode.Range(document.positionAt(group.range.start), document.positionAt(group.range.end))),
+    range: new vscode.Range(document.positionAt(group.range.start), document.positionAt(group.range.end)),
+    i18nKey: group.key,
+    overwriteText: group.replacementText,
+  };
+}
 
 class Hook {
-    private extensionContext?: ExtensionContext;
-    private hookMap: WorkspaceHook = new Map();
-    private watcherMap: Map<string, Watcher> = new Map();
-    private loading = false;
-    private _onChange?: () => void;
-    private host?: Host;
-    private static instance: Hook;
+  private extensionContext?: ExtensionContext;
+  private host?: Host;
+  private hookWatcher?: Disposable;
+  private loading = false;
+  private _onChange?: () => void;
+  private mgr?: HookManager;
+  private static instance: Hook;
 
-    static getInstance(): Hook {
-        if (!Hook.instance) Hook.instance = new Hook();
-        return Hook.instance;
+  static getInstance(): Hook {
+    if (!Hook.instance) Hook.instance = new Hook();
+    return Hook.instance;
+  }
+
+  setHost(h: Host): void {
+    this.host = h;
+    this.mgr = new HookManager(h, new HookLoader(__filename), () => getConfig(), {
+      getUtilExtras: () => ({
+        qs,
+        crypto,
+        uuid,
+        _: lodash,
+        babel: { ...babelParser, traverse },
+      }),
+      getLegacyBindings: () => ({
+        vscode,
+        extensionContext: this.extensionContext,
+        qs,
+        crypto,
+        uuid,
+        _: lodash,
+        babel: { ...babelParser, traverse },
+        hook: Hook.getInstance(),
+        i18n: I18n.getInstance(),
+        convert2pinyin,
+        isInJsxElement,
+        isInJsxAttribute,
+        writeFileByEditor,
+        getICUMessageFormatAST,
+        safeCall,
+        asyncSafeCall,
+        getConfig,
+        getLoading,
+        setLoading,
+        showMessage,
+        matchChinese,
+      }),
+      adaptModule: (module) => adaptLegacyHookModule(module as unknown as Record<string, unknown>),
+    });
+  }
+
+  private get h(): Host {
+    if (!this.host) throw new Error('Host not set (did extension.ts call setHost?)');
+    return this.host;
+  }
+
+  private get manager(): HookManager {
+    if (!this.mgr) throw new Error('HookManager not initialized (did setHost run?)');
+    return this.mgr;
+  }
+
+  getCoreManager(): HookManager {
+    return this.manager;
+  }
+
+  private async disposeWatcher() {
+    this.hookWatcher?.dispose();
+    this.hookWatcher = undefined;
+  }
+
+  async dispose(_workspaceKey?: string) {
+    await this.disposeWatcher();
+  }
+
+  onChange(callback: Hook['_onChange']) {
+    this._onChange = callback;
+  }
+
+  async init(extensionContext: ExtensionContext) {
+    this.extensionContext = extensionContext;
+    return await this.reload();
+  }
+
+  async reload(hookFilePattern?: string) {
+    hookFilePattern = hookFilePattern || getConfig().hookFilePattern;
+    await this.disposeWatcher();
+
+    if (!hookFilePattern) {
+      return;
     }
 
-    setHost(h: Host): void {
-        this.host = h;
-    }
+    this.loading = true;
+    try {
+      const [filePath] = await this.h.findFiles(hookFilePattern, FILE_IGNORE);
+      if (filePath) {
+        await this.manager.reload(filePath);
+      }
 
-    private get h(): Host {
-        if (!this.host) throw new Error('Host not set (did extension.ts call setHost?)');
-        return this.host;
-    }
-
-    private disposeMap(workspaceKey: string) {
-        this.hookMap.delete(workspaceKey);
-    }
-
-    private async disposeWatcher(workspaceKey: string) {
-        const watcher = this.watcherMap.get(workspaceKey);
-        if (!watcher) {
-            return;
-        }
-
-        await watcher.dispose();
-        this.watcherMap.delete(workspaceKey);
-    }
-
-    async dispose(workspaceKey: string) {
-        this.disposeMap(workspaceKey);
-        await this.disposeWatcher(workspaceKey);
-    }
-
-    onChange(callback: Hook['_onChange']) {
-        this._onChange = callback;
-    }
-
-    setHook(workspaceKey: string, path: string) {
-        this.hookMap.set(workspaceKey, dynamicRequire(path));
-    }
-
-    async init(extensionContext: ExtensionContext) {
-        this.extensionContext = extensionContext;
-        return await this.reload();
-    }
-
-    async reload(hookFilePattern?: string) {
-        hookFilePattern = hookFilePattern || getConfig().hookFilePattern;
-
-        const workspaceKey = getWorkspaceKey();
-        if (!workspaceKey) {
-            return;
-        }
-
-        await this.dispose(workspaceKey);
-
-        if (!hookFilePattern) {
-            return;
-        }
-
-        this.loading = true;
+      this.hookWatcher = this.h.watch(hookFilePattern, async (absPath) => {
         try {
-            const watchCallback = (state: WATCH_STATE, uri: Uri) => {
-                switch (state) {
-                    case WATCH_STATE.CHANGE:
-                        this.setHook(workspaceKey, uri.fsPath);
-                        break;
-                    case WATCH_STATE.DELETE:
-                        this.hookMap.delete(workspaceKey);
-                        break;
-                }
-
-                this._onChange?.();
-            };
-
-            // init
-            const [filePath] = await this.h.findFiles(hookFilePattern, FILE_IGNORE);
-            if (filePath) watchCallback(WATCH_STATE.CHANGE, vscode.Uri.file(filePath));
-
-            const watcher = await new Watcher().watch(hookFilePattern, watchCallback);
-            this.watcherMap.set(workspaceKey, watcher);
-        } catch(error: any) {
-            showMessage('warn', `<loadHook error> ${error?.stack}`);
-        } finally {
-            this.loading = false;
-        }
-    }
-
-    private genContext(context: Record<string, any>) {
-        return {
-            ...lodash.cloneDeep(context),
-            qs,
-            crypto,
-            uuid,
-            _: lodash,
-            vscode,
-            extensionContext: this.extensionContext,
-            babel: { ...babelParser, traverse },
-            hook: Hook.getInstance(),
-            i18n: I18n.getInstance(),
-            convert2pinyin,
-            isInJsxElement,
-            isInJsxAttribute,
-            writeFileByEditor,
-            getICUMessageFormatAST,
-            safeCall,
-            asyncSafeCall,
-            getConfig,
-            getLoading,
-            setLoading,
-            showMessage,
-            matchChinese
-        }
-    }
-
-    private async callHook<T = any>(hookName: string, context: Record<string, any>, defaultResult: T): Promise<T> {
-        try {
-            const workspaceKey = getWorkspaceKey();
-            if (!workspaceKey) {
-                return defaultResult;
-            }
-
-            const hook = this.hookMap.get(workspaceKey);
-            if (!hook || !lodash.isFunction(hook[hookName])) {
-                return defaultResult;
-            }
-            
-            return await hook[hookName](this.genContext(context));
+          if (await this.h.exists(absPath)) {
+            await this.manager.reload(absPath);
+          } else {
+            this.setHost(this.h);
+          }
+          this._onChange?.();
         } catch (error: any) {
-            showMessage('warn', `<call ${hookName} hook error, please check hook> ${error?.stack}`);
-            return defaultResult;
+          showMessage('warn', `<loadHook error> ${error?.stack || error}`);
         }
+      });
+    } catch (error: any) {
+      showMessage('warn', `<loadHook error> ${error?.stack || error}`);
+    } finally {
+      this.loading = false;
     }
+  }
 
-    private async call<T = any>(name: string, context: Record<string, any>, defaultResult: T): Promise<T> {
-        while (this.loading) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
+  private async waitForReady() {
+    while (this.loading) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  async match(context: { document: TextDocument }) {
+    await this.waitForReady();
+    const groups = await this.manager.match(context as unknown as Record<string, unknown>);
+    return groups.map((group) => toLegacyGroup(context.document, group));
+  }
+
+  async convert(context: { convertGroups: ConvertGroup[]; document: TextDocument }) {
+    await this.waitForReady();
+    const coreGroups = context.convertGroups.map((group, index) => toCoreGroup(context.document, group, index));
+    const converted = await this.manager.convert(coreGroups, context as unknown as Record<string, unknown>);
+    return converted.map((group) => toLegacyGroup(context.document, group));
+  }
+
+  async write(context: { convertGroups: ConvertGroup[]; document: TextDocument }) {
+    await this.waitForReady();
+    const coreGroups = context.convertGroups.map((group, index) => toCoreGroup(context.document, group, index));
+    await this.manager.write(coreGroups, context as unknown as Record<string, unknown>);
+    return true;
+  }
+
+  async collectI18n(context: { i18nFileUri: Uri }) {
+    await this.waitForReady();
+    const content = await this.h.readFile(context.i18nFileUri.fsPath);
+    return await this.manager.collectI18n(content, context.i18nFileUri.fsPath, context as unknown as Record<string, unknown>) as unknown as I18nGroup[];
+  }
+
+  async matchI18n(context: { type: MatchType; i18nGroups: I18nGroup[]; document: TextDocument }) {
+    await this.waitForReady();
+    return await this.manager.invokeLoaded<I18nGroup[]>(
+      'matchI18n',
+      (module, baseCtx) => {
+        const fn = (module as Record<string, unknown>).matchI18n;
+        if (typeof fn !== 'function') {
+          return context.i18nGroups;
         }
-
-        return await this.callHook(name, context, defaultResult);
-    }
-
-    async match(context: { document: TextDocument }) {
-        return await this.call<ConvertGroup[]>('match', context, []);
-    }
-
-    async convert(context: { convertGroups: ConvertGroup[], document: TextDocument }) {
-        return await this.call<ConvertGroup[]>('convert', context, context.convertGroups);
-    }
-
-    async write(context: { convertGroups: ConvertGroup[], document: TextDocument }) {
-        return await this.call<boolean>('write', context, false);
-    }
-
-    async collectI18n(context: { i18nFileUri: Uri }) {
-        return await this.call<I18nGroup[]>('collectI18n', context, []);
-    }
-
-    async matchI18n(context: { type: MatchType, i18nGroups: I18nGroup[], document: TextDocument }) {
-        return await this.call<I18nGroup[]>('matchI18n', context, context.i18nGroups);
-    }
+        return (fn as (ctx: Record<string, unknown>) => unknown)({
+          ...baseCtx,
+          ...context,
+        }) as I18nGroup[];
+      },
+      context.i18nGroups,
+      context as unknown as Record<string, unknown>,
+    );
+  }
 }
 
 export default Hook;
