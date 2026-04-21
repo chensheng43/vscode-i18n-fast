@@ -248,7 +248,7 @@ export class HookManager {
   async convert(groups: ConvertGroup[], extraLegacy: Record<string, unknown> = {}): Promise<ConvertGroup[]> {
     const result = await this.invokeLoaded(
       'convert',
-      (module, ctx) => module.convert?.(groups, { ...ctx, convertGroups: groups, groups } as HookContext & Record<string, unknown>) ?? groups,
+      (module, ctx) => module.convert?.(groups, { ...ctx, convertGroups: (ctx as Record<string, unknown>).convertGroups ?? groups, groups } as HookContext & Record<string, unknown>) ?? groups,
       groups,
       extraLegacy,
     );
@@ -258,7 +258,7 @@ export class HookManager {
   async write(groups: ConvertGroup[], extraLegacy: Record<string, unknown> = {}): Promise<void> {
     await this.invokeLoaded(
       'write',
-      (module, ctx) => module.write?.(groups, { ...ctx, convertGroups: groups, groups } as HookContext & Record<string, unknown>),
+      (module, ctx) => module.write?.(groups, { ...ctx, convertGroups: (ctx as Record<string, unknown>).convertGroups ?? groups, groups } as HookContext & Record<string, unknown>),
       undefined,
       extraLegacy,
     );

@@ -38,16 +38,10 @@ const adaptLegacyHookModule = (module: Record<string, unknown>) => ({
     ? (ctx: Record<string, unknown>) => (module.match as (ctx: Record<string, unknown>) => unknown)(ctx)
     : undefined,
   convert: typeof module.convert === 'function'
-    ? (groups: CoreConvertGroup[], ctx: Record<string, unknown>) => (module.convert as (ctx: Record<string, unknown>) => unknown)({
-        ...ctx,
-        convertGroups: groups,
-      })
+    ? (_groups: CoreConvertGroup[], ctx: Record<string, unknown>) => (module.convert as (ctx: Record<string, unknown>) => unknown)(ctx)
     : undefined,
   write: typeof module.write === 'function'
-    ? (groups: CoreConvertGroup[], ctx: Record<string, unknown>) => (module.write as (ctx: Record<string, unknown>) => unknown)({
-        ...ctx,
-        convertGroups: groups,
-      })
+    ? (_groups: CoreConvertGroup[], ctx: Record<string, unknown>) => (module.write as (ctx: Record<string, unknown>) => unknown)(ctx)
     : undefined,
   collectI18n: typeof module.collectI18n === 'function'
     ? (_content: string, filePath: string, ctx: Record<string, unknown>) => (module.collectI18n as (ctx: Record<string, unknown>) => unknown)({
