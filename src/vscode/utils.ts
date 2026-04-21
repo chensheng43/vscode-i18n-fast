@@ -1,5 +1,5 @@
 import { workspace, WorkspaceEdit, Range, Uri } from 'vscode';
-import { concat, replace, isNil, max } from 'lodash';
+import { concat, replace, isNil } from 'lodash';
 import { parse } from '@babel/parser';
 import traverse from '@babel/traverse';
 import { parse as parseMessageFormat, TYPE, isArgumentElement, isSelectElement, isPluralElement, isPoundElement, isDateElement, isNumberElement, isTimeElement } from '@formatjs/icu-messageformat-parser';
@@ -326,63 +326,102 @@ export const isInJsxAttribute = (input: string | Node, start: number, end: numbe
   return inJsxAttribute;
 };
 
+import { FileSnapshotStack as CoreFileSnapshotStack } from '@core/snapshot/fileSnapshotStack';
+
+/**
+ * VS Code bridge for FileSnapshotStack. Preserves the legacy singleton + push/pop API
+ * that existing call sites in src/vscode/ rely on, delegating storage to the core
+ * VS Code-free implementation at @core/snapshot/fileSnapshotStack.
+ */
 export class FileSnapshotStack implements Disposable {
-  private items: Map<Uri, string>[] = [];
-  private index = 0;
   private static instance: FileSnapshotStack;
   static readonly MAX_SIZE = 10;
+
+  private core = new CoreFileSnapshotStack({ maxSize: FileSnapshotStack.MAX_SIZE });
+  // pending Uri registry for the currently-open frame (before seal)
+  private pendingUris = new Map<string, Uri>();
+  // stack of Uri registries, one per sealed frame, parallel to core.frames
+  private uriRegistryStack: Map<string, Uri>[] = [];
+  private frameOpen = false;
 
   static getInstance() {
     if (!FileSnapshotStack.instance) {
       FileSnapshotStack.instance = new FileSnapshotStack();
     }
-    
+
     return FileSnapshotStack.instance;
   }
 
-  private shift() {
-    if (this.isEmpty()) {
+  pop(): Map<Uri, string> | undefined {
+    // seal any still-open frame so it becomes poppable, matching legacy behavior
+    // where pop() can reach the frame most recently opened by next()
+    if (this.frameOpen) {
+      this.core.seal();
+      this.uriRegistryStack.push(this.pendingUris);
+      while (this.uriRegistryStack.length > FileSnapshotStack.MAX_SIZE) {
+        this.uriRegistryStack.shift();
+      }
+      this.pendingUris = new Map();
+      this.frameOpen = false;
+    }
+
+    const records = this.core.undo();
+    if (!records) {
       return;
     }
 
-    this.index--;
-    return this.items.shift();
-  }
-
-  pop() {
-    if (this.isEmpty()) {
-      return;
+    const registry = this.uriRegistryStack.pop() ?? new Map();
+    const result = new Map<Uri, string>();
+    for (const { path, content } of records) {
+      const uri = registry.get(path) ?? Uri.file(path);
+      result.set(uri, content);
     }
-
-    this.index--;
-    return this.items.pop();
+    return result;
   }
 
   push(uri: Uri, snapshot: string) {
-    const index = max([this.index - 1, 0])!;
-    const map = this.items[index] || new Map();
-
-    if (!map.has(uri)) {
-      map.set(uri, snapshot);
-      this.items[index] = map;
+    if (!this.frameOpen) {
+      // legacy callers may push without a preceding next(); open an implicit frame
+      this.core.next();
+      this.pendingUris = new Map();
+      this.frameOpen = true;
     }
+
+    const key = uri.toString();
+    if (!this.pendingUris.has(key)) {
+      this.pendingUris.set(key, uri);
+    }
+    this.core.record(key, snapshot);
   }
 
   next() {
-    this.index++;
-
-    if (this.index === FileSnapshotStack.MAX_SIZE) {
-      this.shift();
+    // seal the previous frame, if any, before opening a new one
+    if (this.frameOpen) {
+      this.core.seal();
+      this.uriRegistryStack.push(this.pendingUris);
+      // enforce maxSize on the parallel uri registry stack
+      while (this.uriRegistryStack.length > FileSnapshotStack.MAX_SIZE) {
+        this.uriRegistryStack.shift();
+      }
+      this.pendingUris = new Map();
+      this.frameOpen = false;
     }
+
+    this.core.next();
+    this.pendingUris = new Map();
+    this.frameOpen = true;
   }
 
   dispose() {
-    this.items.length = 0;
-    this.index = 0;
+    this.core.clear();
+    this.pendingUris = new Map();
+    this.uriRegistryStack = [];
+    this.frameOpen = false;
   }
 
   isEmpty() {
-    return this.index === 0;
+    // An open-but-unsealed frame counts as non-empty so callers can still undo it.
+    return this.core.size() === 0 && !this.frameOpen;
   }
 }
 

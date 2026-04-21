@@ -27,7 +27,13 @@ const extensionConfig = {
   },
   resolve: {
     // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
-    extensions: ['.ts', '.js']
+    extensions: ['.ts', '.js'],
+    // mirror tsconfig.json paths so runtime imports like '@core/...' resolve
+    alias: {
+      '@core': path.resolve(__dirname, 'src/core'),
+      '@vscode-ext': path.resolve(__dirname, 'src/vscode'),
+      '@mcp': path.resolve(__dirname, 'src/mcp')
+    }
   },
   module: {
     rules: [
