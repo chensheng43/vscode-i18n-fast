@@ -1,120 +1,106 @@
-import { Uri as VsCodeUri } from "vscode";
+import { I18nCache } from '@core/i18n/cache';
+import { I18nScanner } from '@core/i18n/scanner';
+import type { Disposable, Host } from '@core/host';
 
+import { getConfig } from './config';
 import Hook from './hook';
-import { getConfig } from "./config";
-import { FILE_IGNORE } from './constant';
-import { getWorkspaceKey } from './utils';
-import Watcher, { WATCH_STATE } from './watcher';
-
-import type { Uri } from 'vscode';
-import type { Host } from '@core/host';
-import type { I18nGroup } from "./types";
+import type { I18nGroup } from './types';
 
 type PathMap = Map<string, I18nGroup[]>;
 type WorkspaceMap = Map<string, PathMap>;
 
+function toI18nGroup(entry: Record<string, unknown>): I18nGroup {
+  return {
+    ...(entry as unknown as I18nGroup),
+    key: String(entry.key ?? ''),
+    value: typeof entry.value === 'string' ? entry.value : String(entry.text ?? ''),
+    filePath: typeof entry.filePath === 'string' ? entry.filePath : undefined,
+    line: typeof entry.line === 'number' ? entry.line : undefined,
+  };
+}
+
 export default class I18n {
-    private i18nMap: WorkspaceMap = new Map();
-    private watcherMap: Map<string, Watcher> = new Map();
-    private _onChange?: () => void;
-    private host?: Host;
-    private static instance: I18n;
+  private readonly cache = new I18nCache();
+  private host?: Host;
+  private i18nWatcher?: Disposable;
+  private _onChange?: () => void;
+  private static instance: I18n;
 
-    static getInstance(): I18n {
-        if (!I18n.instance) I18n.instance = new I18n();
-        return I18n.instance;
+  static getInstance(): I18n {
+    if (!I18n.instance) I18n.instance = new I18n();
+    return I18n.instance;
+  }
+
+  setHost(h: Host): void {
+    this.host = h;
+  }
+
+  private get h(): Host {
+    if (!this.host) throw new Error('Host not set (did extension.ts call setHost?)');
+    return this.host;
+  }
+
+  private get scanner(): I18nScanner {
+    return new I18nScanner(this.h, Hook.getInstance().getCoreManager());
+  }
+
+  private async disposeWatcher() {
+    this.i18nWatcher?.dispose();
+    this.i18nWatcher = undefined;
+  }
+
+  async dispose(_workspaceKey?: string) {
+    this.cache.clear();
+    await this.disposeWatcher();
+  }
+
+  async init() {
+    return await this.reload();
+  }
+
+  async reload(i18nFilePattern?: string) {
+    i18nFilePattern = i18nFilePattern || getConfig().i18nFilePattern;
+    await this.disposeWatcher();
+    this.cache.clear();
+
+    if (!i18nFilePattern) {
+      this._onChange?.();
+      return;
     }
 
-    setHost(h: Host): void {
-        this.host = h;
+    const entries = await this.scanner.scan(i18nFilePattern);
+    this.cache.replace(entries);
+    this.i18nWatcher = this.h.watch(i18nFilePattern, async () => {
+      const nextEntries = await this.scanner.scan(i18nFilePattern!);
+      this.cache.replace(nextEntries);
+      this._onChange?.();
+    });
+    this._onChange?.();
+  }
+
+  get(): WorkspaceMap;
+  get(workspaceKey: string): PathMap;
+  get(workspaceKey?: string) {
+    const pathMap: PathMap = new Map();
+    for (const entry of this.cache.all()) {
+      const filePath = entry.filePath;
+      const groups = pathMap.get(filePath) ?? [];
+      groups.push(toI18nGroup(entry as unknown as Record<string, unknown>));
+      pathMap.set(filePath, groups);
     }
 
-    private get h(): Host {
-        if (!this.host) throw new Error('Host not set (did extension.ts call setHost?)');
-        return this.host;
+    if (workspaceKey) {
+      return pathMap;
     }
 
-    private disposeMap(workspaceKey: string) {
-        this.i18nMap.delete(workspaceKey);
-    }
+    return new Map([[this.h.workspaceRoot, pathMap]]);
+  }
 
-    private async disposeWatcher(workspaceKey: string) {
-        const watcher = this.watcherMap.get(workspaceKey);
-        if (!watcher) {
-            return;
-        }
+  getI18nGroups(_workspaceKey?: string): I18nGroup[] {
+    return Array.from(this.cache.all()).map((entry) => toI18nGroup(entry as unknown as Record<string, unknown>));
+  }
 
-        await watcher.dispose();
-        this.watcherMap.delete(workspaceKey);
-    }
-
-    async dispose(workspaceKey: string) {
-        this.disposeMap(workspaceKey);
-        await this.disposeWatcher(workspaceKey);
-    }
-
-    async init() {
-        return await this.reload();
-    }
-
-    async reload(i18nFilePattern?: string) {
-        i18nFilePattern = i18nFilePattern || getConfig().i18nFilePattern;
-
-        const workspaceKey = getWorkspaceKey();
-        if (!workspaceKey) {
-            return;
-        }
-
-        await this.dispose(workspaceKey);
-        if (!i18nFilePattern) {
-            return;
-        }
-
-        const watchCallback = async (state: WATCH_STATE, uri: Uri) => {
-            const pathMap = this.i18nMap.get(workspaceKey) || new Map();
-
-            switch (state) {
-                case WATCH_STATE.CREATE:
-                case WATCH_STATE.CHANGE:
-                    pathMap.set(uri.fsPath, await Hook.getInstance().collectI18n({ i18nFileUri: uri }));
-                    this.i18nMap.set(workspaceKey, pathMap);
-                    break;
-                case WATCH_STATE.DELETE:
-                    pathMap.delete(uri.fsPath);
-                    this.i18nMap.set(workspaceKey, pathMap);
-                    break; 
-            }
-
-            this._onChange?.();
-        };
-
-        // init
-        const i18nFilePaths = await this.h.findFiles(i18nFilePattern, FILE_IGNORE);
-        for (const filePath of i18nFilePaths) {
-            await watchCallback(WATCH_STATE.CHANGE, VsCodeUri.file(filePath));
-        }
-
-        const watcher = await new Watcher().watch(i18nFilePattern, watchCallback);
-        this.watcherMap.set(workspaceKey, watcher);
-    }
-
-    get(): WorkspaceMap;
-    get(workspaceKey: string): PathMap;
-    get(workspaceKey = getWorkspaceKey()) {
-        return workspaceKey ? this.i18nMap.get(workspaceKey) : this.i18nMap;
-    }
-
-    getI18nGroups(workspaceKey = getWorkspaceKey()): I18nGroup[] {
-        if (!workspaceKey) {
-            return [];
-        }
-        
-        return Array.from(this.get(workspaceKey)?.entries() || [])
-            .map(([filePath, groups]) => groups?.map((item) => ({ filePath, ...item })) || [])
-            .flat();
-    }
-
-    onChange(callback: I18n['_onChange']) {
-        this._onChange = callback;
-    }
+  onChange(callback: I18n['_onChange']) {
+    this._onChange = callback;
+  }
 }
