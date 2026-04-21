@@ -9,6 +9,7 @@ import { buildRuntime } from './runtime';
 import { handleConvertText } from './tools/convertText';
 import { handleListI18nEntries } from './tools/listI18nEntries';
 import { handleQueryI18n } from './tools/queryI18n';
+import { handleUndo } from './tools/undo';
 import { installVscodeShim } from './vscodeShim';
 
 function parseArgs(argv: string[]): { workspace: string } {
@@ -86,6 +87,16 @@ async function main() {
     },
   }, async (args) => ({
     content: [{ type: 'text', text: JSON.stringify(await handleListI18nEntries(runtime, args)) }],
+  }));
+
+
+  server.registerTool('undo', {
+    description: '按 undo_token 回滚 MCP 直写的 i18n 文件；不传 token 则回退最近一次。',
+    inputSchema: {
+      undo_token: z.string().optional(),
+    },
+  }, async (args) => ({
+    content: [{ type: 'text', text: JSON.stringify(await handleUndo(runtime, args)) }],
   }));
 
 
