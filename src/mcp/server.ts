@@ -7,6 +7,7 @@ import { FsHost } from './fsHost';
 import { getActive } from './activeContextStore';
 import { buildRuntime } from './runtime';
 import { handleConvertText } from './tools/convertText';
+import { handleListI18nEntries } from './tools/listI18nEntries';
 import { handleQueryI18n } from './tools/queryI18n';
 import { installVscodeShim } from './vscodeShim';
 
@@ -74,6 +75,18 @@ async function main() {
       };
     }
   });
+
+
+  server.registerTool('list_i18n_entries', {
+    description: '分页倾倒 i18n 索引。',
+    inputSchema: {
+      locale: z.string().optional(),
+      limit: z.number().optional(),
+      offset: z.number().optional(),
+    },
+  }, async (args) => ({
+    content: [{ type: 'text', text: JSON.stringify(await handleListI18nEntries(runtime, args)) }],
+  }));
 
 
   await server.connect(new StdioServerTransport());
