@@ -10,6 +10,7 @@ import { SupportType } from './types/enums';
 import { showStatusBar, hideStatusBar } from './tips';
 import { FileSnapshotStack as CoreFileSnapshotStack } from '@core/snapshot/fileSnapshotStack';
 import { matchChinese as coreMatchChinese } from '@core/text/matchChinese';
+import { isInJsxElement as coreIsInJsxElement } from '@core/text/jsx';
 
 import type { TextDocument, Disposable } from 'vscode';
 import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
@@ -227,12 +228,33 @@ export const convert2pinyin = (str: string, opt: Convert2pinyinOpt) => {
   return str;
 }
 
+/**
+ * VS Code adapter over `@core/text/jsx.isInJsxElement`.
+ *
+ * Preserves the legacy `(input: string | Node, start, end)` range-based
+ * signature that existing call sites — including user-land hook files
+ * (see `example/i18n-fast.hook.template.js`, `test/react/.vscode/...`) —
+ * depend on.
+ *
+ * Bridge strategy:
+ * - `string` input + range → delegate to the pure core with `offset = start`.
+ *   Behavior is preserved because the original AST walker checks
+ *   `start >= nodeStart && end <= nodeEnd` (inclusive range containment);
+ *   for the typical `(start, end)` produced by `matchChinese` / hook
+ *   callers, `start` alone is sufficient to identify the surrounding JSX
+ *   context.
+ * - `Node` input → keep the legacy AST-walk path so callers that parsed
+ *   once and reuse the tree (perf-sensitive hooks) don't lose that
+ *   optimization. The core module intentionally only exposes the
+ *   string-offset shape.
+ *
+ * TODO(future MCP task): once hook callers migrate to the
+ * `(source, offset)` shape this adapter can collapse to a direct
+ * re-export of `coreIsInJsxElement`.
+ */
 export const isInJsxElement = (input: string | Node, start: number, end: number) => {
-  let AST: Node;
   if (typeof input === 'string') {
-    AST = getDefaultAST(input);
-  } else {
-    AST = input;
+    return coreIsInJsxElement(input, start);
   }
 
   let inJsx = false;
@@ -262,7 +284,7 @@ export const isInJsxElement = (input: string | Node, start: number, end: number)
     return false;
   };
 
-  traverse(AST, {
+  traverse(input, {
     JSXFragment({ node }) {
       if (checkJSXChildren(node)) {
         inJsx = true;
