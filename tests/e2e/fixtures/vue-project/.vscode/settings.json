@@ -1,0 +1,5 @@
+{
+  "i18n-fast.hookFilePattern": ".vscode/i18n-fast.hook.js",
+  "i18n-fast.i18nFilePattern": "locales/*.json",
+  "i18n-fast.conflictPolicy": "smart"
+}
