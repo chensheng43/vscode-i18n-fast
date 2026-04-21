@@ -12,6 +12,8 @@ import { FileSnapshotStack as CoreFileSnapshotStack } from '@core/snapshot/fileS
 import { matchChinese as coreMatchChinese } from '@core/text/matchChinese';
 import { isInJsxElement as coreIsInJsxElement } from '@core/text/jsx';
 
+export { parseIcuMessage, extractIcuPlaceholders } from '@core/text/icu';
+
 import type { TextDocument, Disposable } from 'vscode';
 import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
 import type { JSXElement, JSXText, Node } from '@babel/types';
@@ -62,6 +64,18 @@ export const asyncSafeCall = async <T extends (...args: any[]) => Promise<any>>(
   }
 }
 
+/**
+ * Legacy VS Code-side wrapper retaining the lenient parser flags
+ * (`ignoreTag`, `requiresOtherClause: false`) that existing hook / handler
+ * call sites depend on — notably the formatter helpers below and user-land
+ * hook files that expect tags to be treated as literal text.
+ *
+ * For a strict parse (no tolerance flags) prefer `parseIcuMessage` re-exported
+ * above from `@core/text/icu`.
+ *
+ * TODO(future MCP task): once hook callers migrate to the stricter core API,
+ * collapse this to a direct re-export or delete it.
+ */
 export const getICUMessageFormatAST = (message: string) => {
   return parseMessageFormat(message, { ignoreTag: true, requiresOtherClause: false });
 }
