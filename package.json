@@ -140,7 +140,7 @@
   },
   "scripts": {
     "vscode:prepublish": "pnpm run pkg",
-    "compile": "webpack",
+    "compile": "pnpm run build:vscode",
     "watch": "webpack --watch",
     "pkg": "webpack --mode production --devtool hidden-source-map",
     "lint": "eslint src --ext ts",
@@ -154,7 +154,10 @@
     "package:alpha": "npx zx scripts/publish.mjs --tasks packageVsix --release prerelease --identifier alpha",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "build:vscode": "webpack",
+    "build:mcp": "webpack --config webpack.mcp.config.js",
+    "build": "pnpm run build:vscode && pnpm run build:mcp"
   },
   "devDependencies": {
     "@babel/types": "7.27.6",
@@ -181,15 +184,22 @@
     "@babel/parser": "^7.26.8",
     "@babel/traverse": "^7.26.8",
     "@formatjs/icu-messageformat-parser": "^2.11.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@monyone/aho-corasick": "^1.0.4",
     "chokidar": "^3.6.0",
     "crypto-js": "^4.2.0",
+    "diff": "^9.0.0",
     "dotenv": "^16.5.0",
+    "fast-glob": "^3.3.3",
     "lodash": "^4.17.21",
     "minimatch": "^10.0.1",
     "qs": "^6.13.0",
     "string-width": "^4.2.3",
     "tiny-pinyin": "^1.3.2",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "zod": "^4.3.6"
+  },
+  "bin": {
+    "i18n-fast-mcp": "./dist/mcp-server.js"
   }
 }
