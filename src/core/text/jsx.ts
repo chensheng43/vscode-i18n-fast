@@ -16,7 +16,7 @@
  *   range was contained within a JSX children region. The pure port takes
  *   a raw string + single character offset, which is the shape the MCP
  *   server and future callers need. The vscode/ adapter preserves the old
- *   range-based signature by collapsing to `offset === start` and
+ *   range-based signature by supplying `start` as `offset` and
  *   delegating — see `src/vscode/utils.ts`.
  *
  * TODO(future MCP task): once callers (hook.ts, user hook contexts) migrate
@@ -36,8 +36,14 @@ import type { Node } from '@babel/types';
 // documented in the task spec and used elsewhere in the repo.
 const traverse: typeof traverseMod = (traverseMod as any).default ?? traverseMod;
 
-const parseAST = (source: string): Node => {
-  return parse(source, {
+// Single-entry cache: callers typically query the same source many times
+// per operation (one call per Chinese hit). Amortizes parse cost to O(1).
+let _cacheKey = '';
+let _cacheAst: ReturnType<typeof parse> | null = null;
+
+const parseAST = (source: string) => {
+  if (source === _cacheKey && _cacheAst) return _cacheAst;
+  const ast = parse(source, {
     sourceType: 'module',
     plugins: ['jsx', 'typescript'],
     errorRecovery: true,
@@ -47,6 +53,9 @@ const parseAST = (source: string): Node => {
     allowUndeclaredExports: true,
     allowAwaitOutsideFunction: true,
   });
+  _cacheKey = source;
+  _cacheAst = ast;
+  return ast;
 };
 
 /**
@@ -91,6 +100,11 @@ export function isInJsxElement(source: string, offset: number): boolean {
         return true;
       }
 
+      // The loop handles the structural check for `checkJSXChildren`.
+      // Individual JSXText nodes are also caught independently by the JSXText
+      // visitor below, which is the primary path for non-empty children.
+      // This loop's early return only fires for the first JSXText child and is
+      // kept for legacy parity — the visitor is what matters for correctness.
       for (const child of node.children) {
         if (child.type === 'JSXText') {
           return checkJSXText(child);

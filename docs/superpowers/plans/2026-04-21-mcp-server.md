@@ -651,11 +651,14 @@ pnpm run test tests/core/jsx.test.ts
 ```
 Expected: 3 passed.
 
-- [ ] **Step 5: utils.ts 改为 re-export，commit**
+- [ ] **Step 5: utils.ts 改为 bridge 保留 legacy 签名，commit**
 
-```ts
-export { isInJsxElement } from '@core/text/jsx';
-```
+Legacy `isInJsxElement` in `src/vscode/utils.ts` has signature `(input: string | Node, start: number, end: number): boolean` and is consumed by user-land hook fixtures (e.g. `example/i18n-fast.hook.template.js`, `test/react/.vscode/i18n-fast.hook.js`). A bare re-export from core would change the arity and silently break JS callers with no compile error. Keep the legacy export signature in `utils.ts`:
+
+- `typeof input === 'string'` → delegate to `@core/text/jsx` with `offset = start`
+- `input: Node` path → keep the inline AST-walk so pre-parsed callers don't re-parse
+
+Add a `TODO(future MCP task)` comment noting the dual-path bridge can collapse to a direct re-export once all callers migrate to `(source, offset)`.
 
 ```bash
 pnpm run compile && git add -A && git commit -m "refactor(core): extract JSX detection with unit tests"

@@ -19,4 +19,9 @@ describe('isInJsxElement', () => {
     const offset = src.indexOf('提示');
     expect(isInJsxElement(src, offset)).toBe(false);
   });
+
+  it('JSXFragment 内的文本返回 true', () => {
+    const src = 'const x = <>添加用户</>;';
+    expect(isInJsxElement(src, src.indexOf('添加用户'))).toBe(true);
+  });
 });

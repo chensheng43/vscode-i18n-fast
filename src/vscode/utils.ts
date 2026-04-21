@@ -231,32 +231,35 @@ export const convert2pinyin = (str: string, opt: Convert2pinyinOpt) => {
 /**
  * VS Code adapter over `@core/text/jsx.isInJsxElement`.
  *
- * Preserves the legacy `(input: string | Node, start, end)` range-based
+ * Preserves the legacy `(input: string | Node, start, _end)` range-based
  * signature that existing call sites — including user-land hook files
  * (see `example/i18n-fast.hook.template.js`, `test/react/.vscode/...`) —
  * depend on.
  *
  * Bridge strategy:
- * - `string` input + range → delegate to the pure core with `offset = start`.
- *   Behavior is preserved because the original AST walker checks
- *   `start >= nodeStart && end <= nodeEnd` (inclusive range containment);
- *   for the typical `(start, end)` produced by `matchChinese` / hook
- *   callers, `start` alone is sufficient to identify the surrounding JSX
- *   context.
+ * - `string` input → delegate to the pure core with `offset = start`.
+ *   The `_end` parameter is intentionally discarded for the string path
+ *   (prefix underscore documents the intentional drop): the original AST
+ *   walker checked `start >= nodeStart && end <= nodeEnd` (inclusive range
+ *   containment), but for the typical `(start, end)` produced by
+ *   `matchChinese` / hook callers, `start` alone is sufficient to identify
+ *   the surrounding JSX context.
  * - `Node` input → keep the legacy AST-walk path so callers that parsed
  *   once and reuse the tree (perf-sensitive hooks) don't lose that
- *   optimization. The core module intentionally only exposes the
- *   string-offset shape.
+ *   optimization. The Node branch still consults both `start` and `_end`
+ *   (aliased as `end`) to preserve range containment semantics. The core
+ *   module intentionally only exposes the string-offset shape.
  *
  * TODO(future MCP task): once hook callers migrate to the
  * `(source, offset)` shape this adapter can collapse to a direct
  * re-export of `coreIsInJsxElement`.
  */
-export const isInJsxElement = (input: string | Node, start: number, end: number) => {
+export const isInJsxElement = (input: string | Node, start: number, _end: number) => {
   if (typeof input === 'string') {
     return coreIsInJsxElement(input, start);
   }
 
+  const end = _end;
   let inJsx = false;
   const checkJSXText = (node: JSXText) => {
     return !isNil(node.start) && !isNil(node.end) && start >= node.start && end <= node.end;
