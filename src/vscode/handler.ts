@@ -1,4 +1,8 @@
 import { window, workspace, Range, Uri, MarkdownString, env, commands } from 'vscode';
+import { I18nCache } from '@core/i18n/cache';
+import { runConvert } from '@core/convert/pipeline';
+import { FileSnapshotStack as CoreFileSnapshotStack } from '@core/snapshot/fileSnapshotStack';
+import type { ConvertGroup as CoreConvertGroup } from '@core/types';
 import { isNil, max, flatMapDeep } from 'lodash';
 import { match } from 'minimatch';
 import { AhoCorasick } from '@monyone/aho-corasick';
@@ -45,6 +49,18 @@ const i18nKeyDecorationType = window.createTextEditorDecorationType({
 });
 
 const IGNORE_KEY = 'IGNORE';
+
+const toCoreGroup = (document: import('vscode').TextDocument, group: ConvertGroup, index: number): CoreConvertGroup => ({
+    id: `legacy_${index}`,
+    filePath: document.uri.fsPath,
+    range: group.range
+        ? { start: document.offsetAt(group.range.start), end: document.offsetAt(group.range.end) }
+        : { start: 0, end: 0 },
+    originalText: group.i18nValue,
+    key: group.i18nKey,
+    replacementText: group.overwriteText,
+});
+
 const getI18nKeyByPicker = async (matchedGroups: I18nGroup[]) => {
     const res = await window.showQuickPick([...matchedGroups.map(({ key, filePath, line }) => ({
         key,
@@ -151,7 +167,25 @@ export const createOnCommandConvertHandler = () => {
 
         convertGroups = await Hook.getInstance().convert({ convertGroups, document });
 
-        await Hook.getInstance().write({ convertGroups, document });
+        const cache = new I18nCache();
+        cache.replace(i18nGroups.map(({ key, value, filePath, line }) => ({
+            key,
+            text: value,
+            locale: 'zh',
+            filePath: filePath || document.uri.fsPath,
+            line,
+        })));
+
+        await runConvert({
+            host: Hook.getInstance().getCoreManager().effectiveHost,
+            hookManager: Hook.getInstance().getCoreManager(),
+            snapshots: new CoreFileSnapshotStack(),
+            i18nCache: cache,
+        }, {
+            conflictPolicy: ConflictPolicy.Ignore,
+            legacyContext: { document, convertGroups },
+            presetConvertedGroups: convertGroups.map((group, index) => toCoreGroup(document, group, index)),
+        });
     };
 
     return asyncInvokeWithErrorHandler(handler);
