@@ -16,9 +16,14 @@
  * vscode/ boundary where the editor document is available; keeping it out of
  * core preserves the "pure function over a string" contract.
  *
- * TODO(task-6+): the MCP server will consume this directly; its options
- * surface (e.g. excluding custom tokens) should be added here rather than in
- * the vscode/ wrapper.
+ * TODO(future MCP task): the MCP server will consume this directly; its
+ * options surface (e.g. excluding custom tokens) should be added here rather
+ * than in the vscode/ wrapper.
+ *
+ * NOTE: Comment-range helpers (`collectCommentRanges`, `collectAllCommentRanges`,
+ * `isInsideAny`) are private here. If a future core module (ICU parser in task-7,
+ * or convert pipeline in task-15) needs the same comment-stripping logic, extract
+ * them to `src/core/text/commentRanges.ts` rather than duplicating.
  */
 
 export interface ChineseHit {
@@ -36,10 +41,6 @@ export interface MatchChineseOptions {
 }
 
 const HAN_CHAR = /[\u4e00-\u9fa5]/;
-// A Chinese segment: one or more Han characters, optionally extended through
-// CJK punctuation runs (U+3000–U+303F symbols, U+FF00–U+FFEF full-width forms)
-// so phrases like `请输入，名称！` stay together.
-const CHINESE_SEGMENT = /[\u4e00-\u9fa5]+(?:[\u3000-\u303f\uff00-\uffef]+[\u4e00-\u9fa5]+)*[\u3000-\u303f\uff00-\uffef]*/g;
 
 type Range = [number, number];
 
@@ -88,14 +89,18 @@ export function matchChinese(text: string, options: MatchChineseOptions = {}): C
     return [];
   }
 
-  const excludes = options.excludes ?? ['v-track:'];
+  // A Chinese segment: one or more Han characters, optionally extended through
+  // CJK punctuation runs (U+3000–U+303F symbols, U+FF00–U+FFEF full-width forms)
+  // so phrases like `请输入，名称！` stay together. Constructed per-call so the
+  // stateful /g `lastIndex` never leaks between concurrent invocations.
+  const chineseSegment = /[\u4e00-\u9fa5]+(?:[\u3000-\u303f\uff00-\uffef]+[\u4e00-\u9fa5]+)*[\u3000-\u303f\uff00-\uffef]*/g;
+
+  const excludes = options.excludes ?? [];
   const commentRanges = collectAllCommentRanges(text);
   const hits: ChineseHit[] = [];
 
-  // Reset regex state — CHINESE_SEGMENT is module-scoped and stateful under /g.
-  CHINESE_SEGMENT.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = CHINESE_SEGMENT.exec(text)) !== null) {
+  while ((match = chineseSegment.exec(text)) !== null) {
     const raw = match[0];
     const start = match.index;
     const end = start + raw.length;
