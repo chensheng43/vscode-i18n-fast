@@ -812,25 +812,30 @@ export interface ConvertGroup {
   originalText: string;
   key?: string;
   replacementText?: string;
-  matched?: { keyIfReuse?: string; candidates?: Array<{ key: string; text: string }> };
 }
 
 export interface I18nEntry {
-  key: string;
-  text: string;
-  locale: string;
-  filePath: string;
-  line?: number;
+  readonly key: string;
+  readonly text: string;
+  readonly locale: string;
+  readonly filePath: string;
+  readonly line?: number;
 }
 
 export type ConflictPolicy = 'reuse' | 'ignore' | 'picker' | 'smart';
 
+/**
+ * Config surface used by core modules. The four declared fields are the
+ * stable schema. The index signature admits hook-supplied extension keys
+ * (passed through to user hooks opaquely), without forcing each added key
+ * to be declared here.
+ */
 export interface ResolvedConfig {
-  hookFilePattern: string;
-  i18nFilePattern: string;
-  conflictPolicy: ConflictPolicy;
-  autoMatchChinese: boolean;
-  [key: string]: unknown;
+  readonly hookFilePattern: string;
+  readonly i18nFilePattern: string;
+  readonly conflictPolicy: ConflictPolicy;
+  readonly autoMatchChinese: boolean;
+  readonly [key: string]: unknown;
 }
 ```
 
@@ -841,30 +846,79 @@ Create `src/core/host.ts`:
 ```ts
 export type HostMode = 'vscode' | 'mcp';
 
+/**
+ * Snapshot of what the user/tool is currently working on. In VS Code mode
+ * this reflects `window.activeTextEditor`; in MCP mode it comes from the
+ * tool-call arguments via `activeContextStore`. Fields are immutable.
+ */
 export interface ActiveContext {
-  filePath: string;
-  content: string;
-  selections?: Array<{ start: number; end: number }>;
-  cursor?: number;
+  readonly filePath: string;
+  readonly content: string;
+  /**
+   * Character-offset selection ranges. `undefined` means "no restriction —
+   * scan the whole file". An empty array is treated the same as `undefined`
+   * by conventional consumers; prefer `undefined` in new code.
+   */
+  readonly selections?: ReadonlyArray<{ readonly start: number; readonly end: number }>;
+  readonly cursor?: number;
 }
 
 export interface Disposable {
   dispose(): void;
 }
 
+/**
+ * Abstraction over the host environment (VS Code extension host or MCP
+ * stdio server). Implementations: `VsCodeHost` (Task 9), `FsHost` (Task 17).
+ */
 export interface Host {
   readonly mode: HostMode;
+
+  /**
+   * POSIX-normalized absolute path, no trailing separator. Implementations
+   * must call `path.resolve` (or equivalent) before exposing this. All glob
+   * patterns passed to `findFiles`/`watch` are resolved relative to this.
+   */
   readonly workspaceRoot: string;
 
+  /** Reads a UTF-8 text file. Throws if the file does not exist. */
   readFile(absPath: string): Promise<string>;
+
+  /**
+   * Writes a UTF-8 text file. Creates parent directories as needed.
+   * Implementations MAY enforce that `absPath` is inside `workspaceRoot`
+   * (FsHost does; VsCodeHost defers to the editor's own permissions).
+   */
   writeFile(absPath: string, content: string): Promise<void>;
+
+  /** True if the path exists (as a file or directory). Never throws. */
   exists(absPath: string): Promise<boolean>;
+
+  /**
+   * Finds files matching a glob. `include` is resolved relative to
+   * `workspaceRoot` (NOT an absolute glob). `exclude` is similarly relative.
+   * Returns absolute paths.
+   */
   findFiles(include: string, exclude?: string): Promise<string[]>;
 
+  /**
+   * Watches a glob relative to `workspaceRoot`. Fires `onChange(absPath)`
+   * for create / modify / delete events. Dispose the returned handle to
+   * stop watching.
+   */
   watch(glob: string, onChange: (absPath: string) => void): Disposable;
 
+  /**
+   * Returns the current focus context, or `undefined` if none. In VS Code
+   * mode this maps from `window.activeTextEditor`; in MCP mode it comes
+   * from the current tool call's arguments.
+   */
   getActiveContext(): ActiveContext | undefined;
 
+  /**
+   * Diagnostic log. Implementations route to whatever makes sense in their
+   * environment (VS Code output channel / MCP stderr).
+   */
   log(level: 'debug' | 'info' | 'warn' | 'error', msg: string): void;
 }
 ```
@@ -898,6 +952,16 @@ describe('Host', () => {
     await h.writeFile('/work/a.json', '{"x":1}');
     expect(await h.readFile('/work/a.json')).toBe('{"x":1}');
     expect(await h.exists('/work/a.json')).toBe(true);
+  });
+
+  it('fake host readFile 对不存在路径抛错', async () => {
+    const h = createFakeHost();
+    await expect(h.readFile('/work/missing.json')).rejects.toThrow(/ENOENT/);
+  });
+
+  it('fake host exists 对未写路径返 false', async () => {
+    const h = createFakeHost();
+    expect(await h.exists('/work/missing.json')).toBe(false);
   });
 });
 ```

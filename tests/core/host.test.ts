@@ -23,4 +23,14 @@ describe('Host', () => {
     expect(await h.readFile('/work/a.json')).toBe('{"x":1}');
     expect(await h.exists('/work/a.json')).toBe(true);
   });
+
+  it('fake host readFile 对不存在路径抛错', async () => {
+    const h = createFakeHost();
+    await expect(h.readFile('/work/missing.json')).rejects.toThrow(/ENOENT/);
+  });
+
+  it('fake host exists 对未写路径返 false', async () => {
+    const h = createFakeHost();
+    expect(await h.exists('/work/missing.json')).toBe(false);
+  });
 });
