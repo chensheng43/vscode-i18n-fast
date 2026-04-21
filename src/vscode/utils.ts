@@ -1,5 +1,5 @@
 import { workspace, WorkspaceEdit, Range, Uri } from 'vscode';
-import { concat, replace, isNil } from 'lodash';
+import { replace, isNil } from 'lodash';
 import { parse } from '@babel/parser';
 import traverse from '@babel/traverse';
 import { parse as parseMessageFormat, TYPE, isArgumentElement, isSelectElement, isPluralElement, isPoundElement, isDateElement, isNumberElement, isTimeElement } from '@formatjs/icu-messageformat-parser';
@@ -9,6 +9,7 @@ import stringWidth from 'string-width';
 import { SupportType } from './types/enums';
 import { showStatusBar, hideStatusBar } from './tips';
 import { FileSnapshotStack as CoreFileSnapshotStack } from '@core/snapshot/fileSnapshotStack';
+import { matchChinese as coreMatchChinese } from '@core/text/matchChinese';
 
 import type { TextDocument, Disposable } from 'vscode';
 import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
@@ -64,109 +65,111 @@ export const getICUMessageFormatAST = (message: string) => {
   return parseMessageFormat(message, { ignoreTag: true, requiresOtherClause: false });
 }
 
-// 获取注释位置
-const getNotePositionList = (text: string, startNote: string, endNote: string) => {
-  // 注释位置
-  const list = [];
-  if (text) {
-    let startIndex = -1;
-    let endIndex = 0;
-    while ((startIndex = text.indexOf(startNote, endIndex)) > -1) {
-      endIndex = text.indexOf(endNote, startIndex + 1);
-      list.push([startIndex, endIndex]);
-    }
-  }
-  return list;
-}
+/**
+ * VS Code adapter over `@core/text/matchChinese`.
+ *
+ * The pure core returns `{ start, end, text }` per Chinese run. This wrapper
+ * preserves the legacy behavior existing call sites (handler.ts, hook.ts)
+ * depend on:
+ * - Expand each hit outward to the nearest string / JSX delimiter so the
+ *   reported `range` spans the full enclosing literal (with template-literal
+ *   backtick fixups).
+ * - Trim whitespace for non-backtick literals; skip hits containing
+ *   `v-track:` (legacy `excludes`).
+ * - When the hit is flanked by matching `'` / `"` / `` ` ``, expand the
+ *   returned `range` and `matchedText` to include the quote characters.
+ *
+ * TODO(task-10+): once callers (handler.ts / hook context) migrate to the
+ * core shape this adapter can collapse to a direct re-export of
+ * `coreMatchChinese`.
+ */
+const MATCH_END_CHARS = new Set(["'", '"', '`', '\n', '>', '<', '}', '{', '(', ')']);
+const MATCH_QUOTE_CHARS = new Set(['"', "'", '`']);
+const MATCH_EXCLUDES = ['v-track:'];
 
-const chineseRegex = /[\u4e00-\u9fa5]/;
-const chineseRegex2 = /[\u4e00-\u9fa5]+|[\u4e00-\u9fa5]/g;
-
-// 提取所有中文字符串
 export const matchChinese = (document: TextDocument) => {
   const documentText = document.getText();
-  const result: ConvertGroup[] = [];
-  const excludes = ['v-track:'];
-  const endChars = ["'", '"', '`', '\n', '>', '<', '}', '{', '(', ')'];
-  const replaceKeys = [[/&nbsp;/g, ""]] as const;
-  
-  if (documentText && chineseRegex.test(documentText)) {
-    const noteList0 = getNotePositionList(documentText, '<i18n>', '</i18n>');
-    const noteList1 = getNotePositionList(documentText, '<!--', '-->');
-    const noteList2 = getNotePositionList(documentText, '/*', '*/');
-    const noteList3 = getNotePositionList(documentText, '//', '\n');
-    const notePositionList = concat(noteList0, noteList1, noteList2, noteList3);
+  if (!documentText) {
+    return [] as ConvertGroup[];
+  }
 
-    let res = null, nextIndex = -1;
-    while (res = chineseRegex2.exec(documentText)) {
-      const c = res[0], i = res.index;
-      let begin = i - 1, end = i + 1;
-      let key = c;
-      if (i < nextIndex) {
-        continue;
-      }
-      // 是否在注释位置
-      if (notePositionList.length) {
-        if (notePositionList.find(item => item[0] < i && i < item[1])) {
-          continue;
-        }
-      }
-      // 向前找
-      while (!endChars.includes(documentText[begin])) {
-        begin--;
-      }
-      // 向后找
-      while (!endChars.includes(documentText[end])) {
+  const hits = coreMatchChinese(documentText, { excludes: MATCH_EXCLUDES });
+  if (!hits.length) {
+    return [] as ConvertGroup[];
+  }
+
+  const result: ConvertGroup[] = [];
+  let nextIndex = -1;
+
+  for (const hit of hits) {
+    const i = hit.start;
+    if (i < nextIndex) {
+      continue;
+    }
+
+    let begin = i - 1;
+    let end = i + 1;
+
+    // 向前找
+    while (!MATCH_END_CHARS.has(documentText[begin])) {
+      begin--;
+    }
+    // 向后找
+    while (!MATCH_END_CHARS.has(documentText[end])) {
+      end++;
+    }
+    // 多行符需要特别处理
+    if (documentText[begin] === '`') {
+      while (documentText[end] !== '`') {
         end++;
       }
-      // 多行符需要特别处理
-      if (documentText[begin] === '`') {
-        while (documentText[end] !== '`') {
-          end++;
-        }
-      }
-      if (documentText[end] === '`') {
-        while (documentText[begin] !== '`') {
-          begin--;
-        }
-      }
-
-      let start = begin + 1;
-      nextIndex = end;
-      key = documentText.substring(start, end);
-
-      if (documentText[begin] !== '`') {
-        const trimmedKey = key.trim();
-
-        // 兼容匹配到的文本前后有空字符的情况
-        if (trimmedKey !== key) {
-          const leadingSpaces = key.length - key.trimStart().length;
-          const trailingSpaces = key.length - key.trimEnd().length;
-          start += leadingSpaces;
-          end -= trailingSpaces;
-          key = trimmedKey;
-        }
-      }
-
-      // 判断是否不含特殊字符
-      if (excludes.some(k => key.includes(k))) {
-        continue;
-      }
-
-      const current = {
-        matchedText: key,
-        i18nValue: key,
-        range: new Range(document.positionAt(start), document.positionAt(end)),
-      };
-      
-      if (['"', "'", '`'].includes(documentText[begin]) && documentText[begin] === documentText[end]) {
-        current.matchedText = `${documentText[begin]}${key}${documentText[end]}`;
-        current.range = current.range.with(current.range.start.translate(0, -1), current.range.end.translate(0, 1));
-      }
-
-      result.push(current);
     }
+    if (documentText[end] === '`') {
+      while (documentText[begin] !== '`') {
+        begin--;
+      }
+    }
+
+    let start = begin + 1;
+    nextIndex = end;
+    let key = documentText.substring(start, end);
+
+    if (documentText[begin] !== '`') {
+      const trimmedKey = key.trim();
+
+      // 兼容匹配到的文本前后有空字符的情况
+      if (trimmedKey !== key) {
+        const leadingSpaces = key.length - key.trimStart().length;
+        const trailingSpaces = key.length - key.trimEnd().length;
+        start += leadingSpaces;
+        end -= trailingSpaces;
+        key = trimmedKey;
+      }
+    }
+
+    // 判断是否不含特殊字符
+    if (MATCH_EXCLUDES.some((k) => key.includes(k))) {
+      continue;
+    }
+
+    const current: ConvertGroup = {
+      matchedText: key,
+      i18nValue: key,
+      range: new Range(document.positionAt(start), document.positionAt(end)),
+    };
+
+    if (MATCH_QUOTE_CHARS.has(documentText[begin]) && documentText[begin] === documentText[end]) {
+      current.matchedText = `${documentText[begin]}${key}${documentText[end]}`;
+      current.range = current.range!.with(
+        current.range!.start.translate(0, -1),
+        current.range!.end.translate(0, 1),
+      );
+    }
+
+    result.push(current);
   }
+
+  const replaceKeys = [[/&nbsp;/g, '']] as const;
   return result.map((item) => {
     replaceKeys.forEach((replaceParams) => item.i18nValue.replace(...replaceParams));
     return item;
