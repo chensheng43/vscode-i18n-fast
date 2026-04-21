@@ -1,5 +1,6 @@
 import { detectConflicts, type ConflictReport } from './conflictDetector';
 import { buildDiff, type SourcePatch } from './diffBuilder';
+import { wrapHostForRecording, type WriteTrace } from '../snapshot/recordingHost';
 
 import type { HookManager } from '../hook/manager';
 import type { Host } from '../host';
@@ -24,7 +25,7 @@ export interface ConvertRunOptions {
 
 export interface ConvertRunResult {
   source_patches: SourcePatch[];
-  i18n_writes_applied: Array<{ path: string; bytes_changed: number }>;
+  i18n_writes_applied: WriteTrace[];
   undo_token?: string;
   conflicts?: ConflictReport[];
   groups?: ConvertGroup[];
@@ -76,12 +77,20 @@ export async function runConvert(
 
   const finalized = applyResolutions(converted, conflicts);
   deps.snapshots.next();
-  await deps.hookManager.write(finalized, opts.legacyContext);
+  const traces: WriteTrace[] = [];
+  const wrappedHost = wrapHostForRecording(deps.host, deps.snapshots, traces);
+
+  deps.hookManager.pushHostOverride(wrappedHost);
+  try {
+    await deps.hookManager.write(finalized, opts.legacyContext);
+  } finally {
+    deps.hookManager.popHostOverride();
+  }
   const undoToken = deps.snapshots.seal();
 
   return {
     source_patches: await buildDiff(deps.host, finalized),
-    i18n_writes_applied: [],
+    i18n_writes_applied: traces,
     undo_token: undoToken,
     groups: finalized,
   };
