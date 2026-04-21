@@ -62,7 +62,11 @@ async function main() {
       };
     } catch (error) {
       const payload = error instanceof Error
-        ? { code: (error as Error & { code?: string }).code ?? error.name, message: error.message }
+        ? {
+            code: (error as Error & { code?: string }).code ?? error.name,
+            message: error.message,
+            conflicts: (error as Error & { conflicts?: unknown[] }).conflicts,
+          }
         : { code: 'INTERNAL', message: String(error) };
       return {
         isError: true,

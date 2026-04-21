@@ -17,3 +17,12 @@ export class ContentDriftError extends Error {
     this.name = 'ContentDriftError';
   }
 }
+
+export class ConflictNeedsResolutionError extends Error {
+  readonly code = 'CONFLICT_NEEDS_RESOLUTION';
+
+  constructor(public readonly conflicts: unknown[]) {
+    super('conflict needs picker resolution');
+    this.name = 'ConflictNeedsResolutionError';
+  }
+}
