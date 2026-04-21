@@ -1,4 +1,10 @@
-import { defineConfig } from 'vitest/config';
+/**
+ * vitest is pinned at ^2.x intentionally. vitest 3+ depends on vite 6+,
+ * which has removed the CJS Node API. This project builds via webpack in
+ * CJS mode (no "type": "module" in package.json), so vitest 3+ would fail
+ * to load its own config. Upgrade only when the extension migrates to ESM.
+ */
+import { defineConfig, defaultExclude } from 'vitest/config';
 import path from 'node:path';
 
 export default defineConfig({
@@ -10,7 +16,7 @@ export default defineConfig({
   },
   test: {
     include: ['tests/**/*.test.ts'],
-    exclude: ['tests/e2e/fixtures/**'],
+    exclude: [...defaultExclude, 'tests/e2e/fixtures/**'],
     coverage: { provider: 'v8', include: ['src/core/**', 'src/mcp/**'] }
   }
 });
