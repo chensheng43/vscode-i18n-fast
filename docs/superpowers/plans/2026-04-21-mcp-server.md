@@ -986,6 +986,7 @@ Create `src/vscode/vscodeHost.ts`:
 
 ```ts
 import { workspace, window, Uri, RelativePattern } from 'vscode';
+import * as path from 'node:path';
 import type { Host, ActiveContext, Disposable } from '@core/host';
 
 export class VsCodeHost implements Host {
@@ -993,7 +994,7 @@ export class VsCodeHost implements Host {
   readonly workspaceRoot: string;
 
   constructor(workspaceRoot: string) {
-    this.workspaceRoot = workspaceRoot;
+    this.workspaceRoot = path.resolve(workspaceRoot);
   }
 
   async readFile(absPath: string): Promise<string> {
@@ -1015,17 +1016,16 @@ export class VsCodeHost implements Host {
   }
 
   async findFiles(include: string, exclude?: string): Promise<string[]> {
-    const folder = workspace.workspaceFolders?.[0];
-    if (!folder) return [];
-    const pattern = new RelativePattern(folder, include);
+    const pattern = new RelativePattern(Uri.file(this.workspaceRoot), include);
+    // exclude is passed as a raw string to workspace.findFiles; VS Code matches
+    // it against paths relative to the workspace root (not this.workspaceRoot),
+    // so callers should use `**/name/**` style glob patterns to be unambiguous.
     const uris = await workspace.findFiles(pattern, exclude);
     return uris.map((u) => u.fsPath);
   }
 
   watch(glob: string, onChange: (absPath: string) => void): Disposable {
-    const folder = workspace.workspaceFolders?.[0];
-    if (!folder) return { dispose() {} };
-    const pattern = new RelativePattern(folder, glob);
+    const pattern = new RelativePattern(Uri.file(this.workspaceRoot), glob);
     const watcher = workspace.createFileSystemWatcher(pattern);
     const d1 = watcher.onDidChange((u) => onChange(u.fsPath));
     const d2 = watcher.onDidCreate((u) => onChange(u.fsPath));
@@ -1038,10 +1038,10 @@ export class VsCodeHost implements Host {
     if (!editor) return undefined;
     const doc = editor.document;
     const content = doc.getText();
-    const selections = editor.selections.map((s) => ({
+    const selections: ActiveContext['selections'] = editor.selections.map((s) => ({
       start: doc.offsetAt(s.start),
       end: doc.offsetAt(s.end)
-    }));
+    } as const));
     return {
       filePath: doc.uri.fsPath,
       content,
@@ -1051,6 +1051,8 @@ export class VsCodeHost implements Host {
   }
 
   log(level: 'debug' | 'info' | 'warn' | 'error', msg: string): void {
+    // TODO(future task): route to a VS Code OutputChannel for user-visible
+    // diagnostics. `console.*` only surfaces in the extension development host.
     console[level === 'debug' ? 'log' : level](msg);
   }
 }
