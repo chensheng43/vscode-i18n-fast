@@ -68,6 +68,7 @@ async function main() {
             code: (error as Error & { code?: string }).code ?? error.name,
             message: error.message,
             conflicts: (error as Error & { conflicts?: unknown[] }).conflicts,
+            hook_location: (error as Error & { hookLocation?: unknown }).hookLocation,
           }
         : { code: 'INTERNAL', message: String(error) };
       return {
