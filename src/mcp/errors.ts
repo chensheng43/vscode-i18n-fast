@@ -8,3 +8,12 @@ export class McpToolError extends Error {
     this.name = 'McpToolError';
   }
 }
+
+export class ContentDriftError extends Error {
+  readonly code = 'CONTENT_DRIFT';
+
+  constructor(public readonly path: string) {
+    super(`file content on disk differs from provided content: ${path}`);
+    this.name = 'ContentDriftError';
+  }
+}

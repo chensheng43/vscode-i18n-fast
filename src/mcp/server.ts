@@ -4,7 +4,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import * as z from 'zod/v4';
 
 import { FsHost } from './fsHost';
+import { getActive } from './activeContextStore';
 import { buildRuntime } from './runtime';
+import { handleConvertText } from './tools/convertText';
 import { handleQueryI18n } from './tools/queryI18n';
 import { installVscodeShim } from './vscodeShim';
 
@@ -17,7 +19,7 @@ function parseArgs(argv: string[]): { workspace: string } {
 
 async function main() {
   const { workspace } = parseArgs(process.argv.slice(2));
-  const host = new FsHost({ workspaceRoot: workspace });
+  const host = new FsHost({ workspaceRoot: workspace, getActiveContext: getActive });
   installVscodeShim(host);
   const runtime = await buildRuntime(host);
   void runtime;
@@ -40,6 +42,34 @@ async function main() {
   }, async (args) => ({
     content: [{ type: 'text', text: JSON.stringify(await handleQueryI18n(runtime, args)) }],
   }));
+
+
+  server.registerTool('convert_text', {
+    description: '把文件里的硬编码文本转换为 i18n key，返回源码 patch + 已写入的 i18n 文件。',
+    inputSchema: {
+      files: z.array(z.object({
+        path: z.string(),
+        content: z.string(),
+        selections: z.array(z.object({ start: z.number(), end: z.number() })).optional(),
+      })),
+      conflict_policy: z.enum(['reuse', 'ignore', 'picker', 'smart']).optional(),
+      picker_resolutions: z.record(z.string(), z.string()).optional(),
+    },
+  }, async (args) => {
+    try {
+      return {
+        content: [{ type: 'text', text: JSON.stringify(await handleConvertText(runtime, args)) }],
+      };
+    } catch (error) {
+      const payload = error instanceof Error
+        ? { code: (error as Error & { code?: string }).code ?? error.name, message: error.message }
+        : { code: 'INTERNAL', message: String(error) };
+      return {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify(payload) }],
+      };
+    }
+  });
 
 
   await server.connect(new StdioServerTransport());
