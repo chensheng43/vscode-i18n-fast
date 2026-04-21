@@ -42,6 +42,10 @@
 
 安装好插件后，需要完善[插件配置](#插件配置)和 [hook 文件](#hook-配置)，如果你的配置很完善，理想情况下预览代码的时候就可以看到 i18n 回显了，调用 [i18n-fast.convert](#i18n-fastconvert) 或 [i18n-fast.paste](#i18n-fastpaste) 命令来验证你实现的功能吧！
 
+## MCP Server
+
+想在 Claude Code 或 Cursor 里复用同一套 hook 流程，可查看[`docs/mcp/README.md`](./docs/mcp/README.md)中的 MCP 接入、tool 契约和迁移说明。
+
 ## 流程图
 
 ![](./assets/flowchart.png "flowchart")

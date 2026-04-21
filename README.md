@@ -42,6 +42,10 @@ Search for **I18n Fast** in the VS Code Marketplace and click **Install**, or do
 
 After installing the plugin, you need to complete the [plugin configuration](#plugin-configuration) and [hook files](#hook-configuration). With a well-configured setup, you should see i18n feedback when previewing your code. Try using the [i18n-fast.convert](#i18n-fastconvert) or [i18n-fast.paste](#i18n-fastpaste) command to verify your implementation!
 
+## MCP Server
+
+Need the same hook-driven i18n flow in Claude Code or Cursor? See [`docs/mcp/README.md`](./docs/mcp/README.md) for MCP setup, tool contracts, and migration notes.
+
 ## Flowchart
 
 ![](./assets/flowchart.png "flowchart")

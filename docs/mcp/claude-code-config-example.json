@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "i18n-fast": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/vscode-i18n-fast/dist/mcp-server.js",
+        "--workspace",
+        "${workspaceFolder}"
+      ]
+    }
+  }
+}
