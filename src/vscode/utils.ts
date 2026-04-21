@@ -11,7 +11,6 @@ import { showStatusBar, hideStatusBar } from './tips';
 import { FileSnapshotStack as CoreFileSnapshotStack } from '@core/snapshot/fileSnapshotStack';
 import { matchChinese as coreMatchChinese } from '@core/text/matchChinese';
 import { isInJsxElement as coreIsInJsxElement } from '@core/text/jsx';
-
 export { parseIcuMessage, extractIcuPlaceholders } from '@core/text/icu';
 
 import type { TextDocument, Disposable } from 'vscode';

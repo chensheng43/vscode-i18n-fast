@@ -1,48 +1,73 @@
 /**
- * Pure (VS Code-free) ICU MessageFormat parsing helpers.
+ * ICU MessageFormat parsing — strict path.
  *
- * Thin wrapper over `@formatjs/icu-messageformat-parser`:
- * - `parseIcuMessage` exposes the parser with default options so call sites
- *   share a single entry point. It propagates parse errors so invalid input
- *   is surfaced rather than silently swallowed.
- * - `extractIcuPlaceholders` walks the resulting AST and collects the
- *   placeholder names (argument / plural / select / number / date / time /
- *   tag nodes — everything with a `value: string` that isn't a plain
- *   literal, `type === 0`).
+ * Exports `parseIcuMessage` (strict pass-through to @formatjs parser) and
+ * `extractIcuPlaceholders` (collects unique placeholder names). Parse errors
+ * propagate — callers needing lenient behaviour should use
+ * `getICUMessageFormatAST` in `src/vscode/utils.ts`, which passes
+ * `ignoreTag` and `requiresOtherClause: false`.
  *
- * NOTE: this core module intentionally avoids the legacy `ignoreTag` /
- * `requiresOtherClause` flags used by `src/vscode/utils.ts :: getICUMessageFormatAST`.
- * The VS Code side keeps its own wrapper with those flags; this module is the
- * clean, strict variant future consumers (the MCP server, other tooling) can
- * rely on.
+ * Collected element types: argument, number, date, time, select, plural.
+ * Skipped: literal, pound (#), tag (walked into children).
+ * Nested: plural/select options, tag children.
  *
- * TODO(future MCP task): if the MCP server needs placeholder metadata beyond
- * names (e.g. plural keys, nested structure), extend the walker here rather
- * than duplicating the traversal in call sites.
+ * TODO(future MCP task): return richer metadata (type, nested context)
+ * once the MCP `convert_text` tool needs to validate placeholders against
+ * the hook's convert output.
  */
-
-import { parse } from '@formatjs/icu-messageformat-parser';
+import {
+  parse,
+  TYPE,
+  isLiteralElement,
+  isPoundElement,
+  isTagElement,
+  isPluralElement,
+  isSelectElement
+} from '@formatjs/icu-messageformat-parser';
 import type { MessageFormatElement } from '@formatjs/icu-messageformat-parser';
 
+/**
+ * Strictly parses an ICU message to an AST.
+ *
+ * @throws if `input` is not valid ICU. For lenient parsing (matching legacy
+ *   hook behaviour), use `getICUMessageFormatAST` in `src/vscode/utils.ts`.
+ */
 export function parseIcuMessage(input: string): MessageFormatElement[] {
   return parse(input);
 }
 
+/**
+ * Walks an ICU AST and returns unique placeholder names in encounter order.
+ *
+ * Skips literal text and pound `#` nodes. Recurses into plural/select option
+ * bodies and tag children. Tag names themselves are NOT collected — a
+ * message like `<b>{name}</b>` yields `['name']`, not `['b']`.
+ *
+ * @throws if `input` is not valid ICU — propagated from `parseIcuMessage`.
+ */
 export function extractIcuPlaceholders(input: string): string[] {
   const ast = parseIcuMessage(input);
   const names = new Set<string>();
   const walk = (nodes: MessageFormatElement[]) => {
     for (const node of nodes) {
-      if ('value' in node && typeof (node as any).value === 'string' && node.type !== 0) {
-        names.add((node as any).value);
+      if (isLiteralElement(node) || isPoundElement(node)) continue;
+      if (isTagElement(node)) {
+        walk(node.children);
+        continue;
       }
-      if ('options' in node) {
-        for (const opt of Object.values((node as any).options)) {
-          walk((opt as any).value);
+      // Argument / Number / Date / Time / Select / Plural — all have .value: string
+      // (typed via the library's BaseElement discriminated union).
+      names.add(node.value);
+      if (isPluralElement(node) || isSelectElement(node)) {
+        for (const opt of Object.values(node.options)) {
+          walk(opt.value);
         }
       }
     }
   };
+  // Assert non-literal / non-pound types have a `value` string; use TYPE for
+  // a compile-time sanity check that this enum is still part of the library API.
+  void TYPE.literal;
   walk(ast);
   return Array.from(names);
 }
