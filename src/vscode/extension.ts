@@ -15,7 +15,11 @@ export async function activate(context: ExtensionContext) {
 	const onDidChangeAddDecorationHandler = createOnDidChangeAddDecorationHandler();
 	const debouncedOnDidChangeAddDecorationHandler = debounce(onDidChangeAddDecorationHandler, 300);
 
-	const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+	const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath;
+	if (!workspaceRoot) {
+		void window.showWarningMessage(`${PLUGIN_NAME}: open a workspace folder before using i18n-fast.`);
+		return;
+	}
 	const host = new VsCodeHost(workspaceRoot);
 	Hook.getInstance().setHost(host);
 	I18n.getInstance().setHost(host);

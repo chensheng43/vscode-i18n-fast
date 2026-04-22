@@ -38,7 +38,9 @@ export class FsHost implements Host {
   }
 
   async readFile(absPath: string): Promise<string> {
-    return await fs.readFile(absPath, 'utf-8');
+    const resolved = path.resolve(absPath);
+    this.ensureInside(resolved);
+    return await fs.readFile(resolved, 'utf-8');
   }
 
   async writeFile(absPath: string, content: string): Promise<void> {

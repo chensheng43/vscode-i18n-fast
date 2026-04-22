@@ -12,6 +12,21 @@ import { handleQueryI18n } from './tools/queryI18n';
 import { handleUndo } from './tools/undo';
 import { installVscodeShim } from './vscodeShim';
 
+function toolErrorPayload(error: unknown) {
+  const payload = error instanceof Error
+    ? {
+        code: (error as Error & { code?: string }).code ?? error.name,
+        message: error.message,
+        conflicts: (error as Error & { conflicts?: unknown[] }).conflicts,
+        hook_location: (error as Error & { hookLocation?: unknown }).hookLocation,
+      }
+    : { code: 'INTERNAL', message: String(error) };
+  return {
+    isError: true as const,
+    content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
+  };
+}
+
 function parseArgs(argv: string[]): { workspace: string } {
   const index = argv.indexOf('--workspace');
   return {
@@ -42,9 +57,13 @@ async function main() {
       locale: z.string().optional(),
       exclude_keys: z.array(z.string()).optional().describe('排除指定 key，不出现在结果中'),
     },
-  }, async (args) => ({
-    content: [{ type: 'text', text: JSON.stringify(await handleQueryI18n(runtime, args)) }],
-  }));
+  }, async (args) => {
+    try {
+      return { content: [{ type: 'text', text: JSON.stringify(await handleQueryI18n(runtime, args)) }] };
+    } catch (error) {
+      return toolErrorPayload(error);
+    }
+  });
 
 
   server.registerTool('convert_text', {
@@ -64,18 +83,7 @@ async function main() {
         content: [{ type: 'text', text: JSON.stringify(await handleConvertText(runtime, args)) }],
       };
     } catch (error) {
-      const payload = error instanceof Error
-        ? {
-            code: (error as Error & { code?: string }).code ?? error.name,
-            message: error.message,
-            conflicts: (error as Error & { conflicts?: unknown[] }).conflicts,
-            hook_location: (error as Error & { hookLocation?: unknown }).hookLocation,
-          }
-        : { code: 'INTERNAL', message: String(error) };
-      return {
-        isError: true,
-        content: [{ type: 'text', text: JSON.stringify(payload) }],
-      };
+      return toolErrorPayload(error);
     }
   });
 
@@ -87,9 +95,13 @@ async function main() {
       limit: z.number().optional(),
       offset: z.number().optional(),
     },
-  }, async (args) => ({
-    content: [{ type: 'text', text: JSON.stringify(await handleListI18nEntries(runtime, args)) }],
-  }));
+  }, async (args) => {
+    try {
+      return { content: [{ type: 'text', text: JSON.stringify(await handleListI18nEntries(runtime, args)) }] };
+    } catch (error) {
+      return toolErrorPayload(error);
+    }
+  });
 
 
   server.registerTool('undo', {
@@ -97,9 +109,13 @@ async function main() {
     inputSchema: {
       undo_token: z.string().optional(),
     },
-  }, async (args) => ({
-    content: [{ type: 'text', text: JSON.stringify(await handleUndo(runtime, args)) }],
-  }));
+  }, async (args) => {
+    try {
+      return { content: [{ type: 'text', text: JSON.stringify(await handleUndo(runtime, args)) }] };
+    } catch (error) {
+      return toolErrorPayload(error);
+    }
+  });
 
 
   await server.connect(new StdioServerTransport());

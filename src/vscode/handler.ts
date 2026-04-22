@@ -184,7 +184,9 @@ export const createOnCommandConvertHandler = () => {
         }, {
             conflictPolicy: ConflictPolicy.Ignore,
             legacyContext: { document, convertGroups },
-            presetConvertedGroups: convertGroups.map((group, index) => toCoreGroup(document, group, index)),
+            presetConvertedGroups: convertGroups
+                .filter((g) => !!g.range)
+                .map((group, index) => toCoreGroup(document, group, index)),
         });
     };
 

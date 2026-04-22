@@ -124,27 +124,22 @@ export const matchChinese = (document: TextDocument) => {
     let begin = i - 1;
     let end = i + 1;
 
-    // NOTE: These expansion loops assume the document always has delimiter characters
-    // surrounding a Chinese hit. A hit at offset 0 with no leading delimiter, or at
-    // document end with no trailing delimiter, would loop forever (undefined fails
-    // MATCH_END_CHARS.has). This is inherited from the original implementation;
-    // TODO(task-10+): add sentinel guards when handler.ts migrates to direct core use.
     // 向前找
-    while (!MATCH_END_CHARS.has(documentText[begin])) {
+    while (begin >= 0 && !MATCH_END_CHARS.has(documentText[begin])) {
       begin--;
     }
     // 向后找
-    while (!MATCH_END_CHARS.has(documentText[end])) {
+    while (end < documentText.length && !MATCH_END_CHARS.has(documentText[end])) {
       end++;
     }
     // 多行符需要特别处理
     if (documentText[begin] === '`') {
-      while (documentText[end] !== '`') {
+      while (end < documentText.length && documentText[end] !== '`') {
         end++;
       }
     }
     if (documentText[end] === '`') {
-      while (documentText[begin] !== '`') {
+      while (begin >= 0 && documentText[begin] !== '`') {
         begin--;
       }
     }

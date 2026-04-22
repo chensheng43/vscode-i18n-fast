@@ -208,14 +208,18 @@ class Hook {
 
   async convert(context: { convertGroups: ConvertGroup[]; document: TextDocument }) {
     await this.waitForReady();
-    const coreGroups = context.convertGroups.map((group, index) => toCoreGroup(context.document, group, index));
+    const coreGroups = context.convertGroups
+      .filter((g) => !!g.range)
+      .map((group, index) => toCoreGroup(context.document, group, index));
     const converted = await this.manager.convert(coreGroups, context as unknown as Record<string, unknown>);
     return converted.map((group) => toLegacyGroup(context.document, group));
   }
 
   async write(context: { convertGroups: ConvertGroup[]; document: TextDocument }) {
     await this.waitForReady();
-    const coreGroups = context.convertGroups.map((group, index) => toCoreGroup(context.document, group, index));
+    const coreGroups = context.convertGroups
+      .filter((g) => !!g.range)
+      .map((group, index) => toCoreGroup(context.document, group, index));
     await this.manager.write(coreGroups, context as unknown as Record<string, unknown>);
     return true;
   }

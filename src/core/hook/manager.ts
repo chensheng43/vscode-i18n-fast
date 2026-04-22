@@ -7,16 +7,16 @@ import type { HookContext, HookModule } from './types';
 import type { Host } from '../host';
 import type { ConvertGroup, I18nEntry } from '../types';
 
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 export class HookTimeoutError extends Error {
   readonly code = 'HOOK_TIMEOUT';
 
-  constructor(public readonly phase: string) {
-    super(`Hook ${phase} timed out after 30s`);
+  constructor(public readonly phase: string, timeoutMs: number = DEFAULT_TIMEOUT_MS) {
+    super(`Hook ${phase} timed out after ${timeoutMs}ms`);
     this.name = 'HookTimeoutError';
   }
 }
-
-const DEFAULT_TIMEOUT_MS = 30_000;
 
 async function withTimeout<T>(phase: string, value: Promise<T> | T, timeoutMs: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
@@ -24,7 +24,7 @@ async function withTimeout<T>(phase: string, value: Promise<T> | T, timeoutMs: n
     return await Promise.race([
       Promise.resolve(value),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new HookTimeoutError(phase)), timeoutMs);
+        timer = setTimeout(() => reject(new HookTimeoutError(phase, timeoutMs)), timeoutMs);
       }),
     ]);
   } finally {

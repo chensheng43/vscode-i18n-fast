@@ -22,8 +22,12 @@ export async function handleConvertText(runtime: McpRuntime, args: {
 
   const [file] = args.files;
   const absPath = path.isAbsolute(file.path) ? file.path : path.resolve(runtime.host.workspaceRoot, file.path);
-  const onDisk = await runtime.host.readFile(absPath);
-  if (onDisk !== file.content) {
+  if (!(await runtime.host.exists(absPath))) {
+    throw new ContentDriftError(absPath);
+  }
+  const normalize = (s: string) => s.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const onDisk = normalize(await runtime.host.readFile(absPath));
+  if (onDisk !== normalize(file.content)) {
     throw new ContentDriftError(absPath);
   }
 
