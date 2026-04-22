@@ -44,9 +44,10 @@ const adaptLegacyHookModule = (module: Record<string, unknown>) => ({
     ? (_groups: CoreConvertGroup[], ctx: Record<string, unknown>) => (module.write as (ctx: Record<string, unknown>) => unknown)(ctx)
     : undefined,
   collectI18n: typeof module.collectI18n === 'function'
-    ? (_content: string, filePath: string, ctx: Record<string, unknown>) => (module.collectI18n as (ctx: Record<string, unknown>) => unknown)({
+    ? (content: string, filePath: string, ctx: Record<string, unknown>) => (module.collectI18n as (ctx: Record<string, unknown>) => unknown)({
         ...ctx,
         i18nFileUri: vscode.Uri.file(filePath),
+        i18nContent: content,
       })
     : undefined,
 }) as any;
@@ -176,15 +177,19 @@ class Hook {
       }
 
       this.hookWatcher = this.h.watch(hookFilePattern, async (absPath) => {
+        if (this.loading) return;
+        this.loading = true;
         try {
           if (await this.h.exists(absPath)) {
             await this.manager.reload(absPath);
           } else {
-            this.setHost(this.h);
+            this.manager.unload();
           }
           this._onChange?.();
         } catch (error: any) {
           showMessage('warn', `<loadHook error> ${error?.stack || error}`);
+        } finally {
+          this.loading = false;
         }
       });
     } catch (error: any) {
