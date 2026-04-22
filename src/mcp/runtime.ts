@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as babelParser from '@babel/parser';
 import traverse from '@babel/traverse';
@@ -71,22 +72,24 @@ export interface McpRuntime {
 
 export async function buildRuntime(host: Host): Promise<McpRuntime> {
   const configPath = path.join(host.workspaceRoot, '.vscode', 'settings.json');
-  let raw: Record<string, unknown> = {};
-  if (await host.exists(configPath)) {
-    try {
-      raw = parseJsonc(await host.readFile(configPath)) as Record<string, unknown>;
-    } catch {
-      raw = {};
-    }
-  }
 
-  const readConfig = (): ResolvedConfig => ({
-    ...DEFAULT_CONFIG,
-    hookFilePattern: String(raw['i18n-fast.hookFilePattern'] ?? DEFAULT_CONFIG.hookFilePattern),
-    i18nFilePattern: String(raw['i18n-fast.i18nFilePattern'] ?? DEFAULT_CONFIG.i18nFilePattern),
-    conflictPolicy: (raw['i18n-fast.conflictPolicy'] as ResolvedConfig['conflictPolicy']) ?? DEFAULT_CONFIG.conflictPolicy,
-    autoMatchChinese: Boolean(raw['i18n-fast.autoMatchChinese'] ?? DEFAULT_CONFIG.autoMatchChinese),
-  });
+  const readConfig = (): ResolvedConfig => {
+    let raw: Record<string, unknown> = {};
+    if (fs.existsSync(configPath)) {
+      try {
+        raw = parseJsonc(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
+      } catch {
+        raw = {};
+      }
+    }
+    return {
+      ...DEFAULT_CONFIG,
+      hookFilePattern: String(raw['i18n-fast.hookFilePattern'] ?? DEFAULT_CONFIG.hookFilePattern),
+      i18nFilePattern: String(raw['i18n-fast.i18nFilePattern'] ?? DEFAULT_CONFIG.i18nFilePattern),
+      conflictPolicy: (raw['i18n-fast.conflictPolicy'] as ResolvedConfig['conflictPolicy']) ?? DEFAULT_CONFIG.conflictPolicy,
+      autoMatchChinese: Boolean(raw['i18n-fast.autoMatchChinese'] ?? DEFAULT_CONFIG.autoMatchChinese),
+    };
+  };
 
   const hookManager = new HookManager(host, new HookLoader(__filename), readConfig, {
     getUtilExtras: () => ({

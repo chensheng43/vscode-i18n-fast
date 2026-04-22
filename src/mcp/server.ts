@@ -4,7 +4,6 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import * as z from 'zod/v4';
 
 import { FsHost } from './fsHost';
-import { getActive } from './activeContextStore';
 import { buildRuntime } from './runtime';
 import { handleConvertText } from './tools/convertText';
 import { handleListI18nEntries } from './tools/listI18nEntries';
@@ -36,7 +35,7 @@ function parseArgs(argv: string[]): { workspace: string } {
 
 async function main() {
   const { workspace } = parseArgs(process.argv.slice(2));
-  const host = new FsHost({ workspaceRoot: workspace, getActiveContext: getActive });
+  const host = new FsHost({ workspaceRoot: workspace });
   installVscodeShim(host);
   const runtime = await buildRuntime(host);
   void runtime;

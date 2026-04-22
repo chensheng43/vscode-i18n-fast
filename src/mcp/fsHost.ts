@@ -59,10 +59,17 @@ export class FsHost implements Host {
     }
   }
 
+  private sanitizeGlob(pattern: string): string {
+    if (path.isAbsolute(pattern) || pattern.split(/[/\\]/).includes('..')) {
+      throw new PathOutsideWorkspaceError(pattern);
+    }
+    return pattern;
+  }
+
   async findFiles(include: string, exclude?: string): Promise<string[]> {
-    return await fg.glob(include, {
+    return await fg.glob(this.sanitizeGlob(include), {
       cwd: this.workspaceRoot,
-      ignore: exclude ? [exclude] : [],
+      ignore: exclude ? [this.sanitizeGlob(exclude)] : [],
       absolute: true,
       onlyFiles: true,
     });
