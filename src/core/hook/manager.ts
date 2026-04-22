@@ -94,7 +94,7 @@ function normalizeRangeLike(content: string, range: unknown): { start: number; e
 
 function findRangesByMatchedText(content: string, groups: Array<Record<string, unknown>>): Map<Record<string, unknown>, { start: number; end: number }> {
   const result = new Map<Record<string, unknown>, { start: number; end: number }>();
-  let cursor = 0;
+  const consumed: Array<{ start: number; end: number }> = [];
 
   for (const group of groups) {
     const matchedText = typeof group.matchedText === 'string'
@@ -108,13 +108,23 @@ function findRangesByMatchedText(content: string, groups: Array<Record<string, u
       continue;
     }
 
-    const idx = content.indexOf(matchedText, cursor);
-    if (idx === -1) {
-      continue;
-    }
+    let searchFrom = 0;
+    while (searchFrom <= content.length - matchedText.length) {
+      const idx = content.indexOf(matchedText, searchFrom);
+      if (idx === -1) {
+        break;
+      }
 
-    result.set(group, { start: idx, end: idx + matchedText.length });
-    cursor = idx + matchedText.length;
+      const candidateEnd = idx + matchedText.length;
+      if (consumed.every((r) => candidateEnd <= r.start || idx >= r.end)) {
+        const range = { start: idx, end: candidateEnd };
+        result.set(group, range);
+        consumed.push(range);
+        break;
+      }
+
+      searchFrom = idx + 1;
+    }
   }
 
   return result;
@@ -144,14 +154,14 @@ function normalizeConvertGroups(rawGroups: unknown, host: Host): ConvertGroup[] 
           ? group.matchedText
           : undefined;
 
-    if (!originalText) {
+    if (!originalText || !normalizedRange) {
       return [];
     }
 
     return [{
       id: typeof group.id === 'string' ? group.id : `g_${index}_${randomUUID()}`,
       filePath: typeof group.filePath === 'string' ? group.filePath : active?.filePath ?? host.workspaceRoot,
-      range: normalizedRange ?? { start: 0, end: 0 },
+      range: normalizedRange,
       originalText,
       key: typeof group.key === 'string'
         ? group.key
@@ -213,6 +223,10 @@ export class HookManager {
       ...loaded,
       module: this.adaptModule(loaded.module, loaded.filePath),
     };
+  }
+
+  unload(): void {
+    this.loaded = undefined;
   }
 
   private buildContext(extraLegacy: Record<string, unknown> = {}): HookContext & Record<string, unknown> {
