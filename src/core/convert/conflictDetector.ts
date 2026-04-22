@@ -66,7 +66,7 @@ export function detectConflicts(
           groupId: group.id,
           originalText: group.originalText,
           candidates,
-          resolution: hits.length === 1 ? `reuse:${hits[0].key}` : undefined,
+          resolution: `reuse:${hits[0].key}`,
         };
       case 'picker':
       default:

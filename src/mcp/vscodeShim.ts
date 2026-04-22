@@ -97,7 +97,8 @@ function buildShim(host: Host): unknown {
         update: () => guard('workspace.getConfiguration.update'),
       };
     },
-    asRelativePath(filePath: string) {
+    asRelativePath(pathOrUri: string | { fsPath?: string }, _includeWorkspaceFolder?: boolean) {
+      const filePath = typeof pathOrUri === 'string' ? pathOrUri : (pathOrUri?.fsPath ?? String(pathOrUri));
       return filePath.startsWith(host.workspaceRoot)
         ? filePath.slice(host.workspaceRoot.length + 1)
         : filePath;

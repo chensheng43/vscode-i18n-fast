@@ -86,10 +86,11 @@ export async function runConvert(
   } finally {
     deps.hookManager.popHostOverride();
   }
+  const beforeSnapshots = deps.snapshots.currentRecords();
   const undoToken = deps.snapshots.seal();
 
   return {
-    source_patches: await buildDiff(deps.host, finalized),
+    source_patches: await buildDiff(deps.host, finalized, beforeSnapshots),
     i18n_writes_applied: traces,
     undo_token: undoToken,
     groups: finalized,

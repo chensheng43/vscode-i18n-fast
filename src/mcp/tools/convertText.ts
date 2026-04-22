@@ -3,8 +3,10 @@ import * as path from 'node:path';
 import { runConvert } from '@core/convert/pipeline';
 import type { ActiveContext, Host } from '@core/host';
 
+import { buildDocumentShim } from '../documentShim';
 import { ConflictNeedsResolutionError, ContentDriftError } from '../errors';
 import { ensureHookLoaded, ensureI18nLoaded } from '../runtime';
+import { buildMatchChinese, buildWriteFileByEditor } from '../utilShims';
 
 import type { McpRuntime } from '../runtime';
 
@@ -43,17 +45,31 @@ export async function handleConvertText(runtime: McpRuntime, args: {
     selections: file.selections,
   });
 
-  const result = await runConvert({
-    host,
-    hookManager: runtime.hookManager,
-    snapshots: runtime.snapshots,
-    i18nCache: runtime.cache,
-  }, {
-    conflictPolicy: args.conflict_policy ?? runtime.readConfig().conflictPolicy,
-    pickerResolutions: args.picker_resolutions,
-  });
-  if (result.conflicts && result.conflicts.length > 0) {
-    throw new ConflictNeedsResolutionError(result.conflicts);
+  const contentRef = { value: file.content };
+  const document = buildDocumentShim(absPath, contentRef);
+  const legacyContext = {
+    document,
+    writeFileByEditor: buildWriteFileByEditor(() => runtime.hookManager.effectiveHost, absPath, contentRef),
+    matchChinese: buildMatchChinese(),
+  };
+
+  runtime.hookManager.pushHostOverride(host);
+  try {
+    const result = await runConvert({
+      host,
+      hookManager: runtime.hookManager,
+      snapshots: runtime.snapshots,
+      i18nCache: runtime.cache,
+    }, {
+      conflictPolicy: args.conflict_policy ?? runtime.readConfig().conflictPolicy,
+      pickerResolutions: args.picker_resolutions,
+      legacyContext,
+    });
+    if (result.conflicts && result.conflicts.length > 0) {
+      throw new ConflictNeedsResolutionError(result.conflicts);
+    }
+    return result;
+  } finally {
+    runtime.hookManager.popHostOverride();
   }
-  return result;
 }

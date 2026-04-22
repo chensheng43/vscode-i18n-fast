@@ -17,6 +17,18 @@ import type { ResolvedConfig } from '@core/types';
 
 import { UnsupportedInMcpError } from './vscodeShim';
 import { parseJsonc } from './parseJsonc';
+import {
+  safeCall,
+  asyncSafeCall,
+  getICUMessageFormatAST,
+  convert2pinyin,
+  isInJsxElement,
+  isInJsxAttribute,
+  setLoading,
+  getLoading,
+  buildShowMessage,
+  buildGetConfig,
+} from './utilShims';
 
 declare const __non_webpack_require__: NodeRequire;
 
@@ -31,22 +43,63 @@ function loadShimmedVscode(): unknown {
   return __non_webpack_require__('vscode');
 }
 
+function coreGroupsToLegacy(groups: unknown, ctx: Record<string, unknown>): unknown {
+  if (!Array.isArray(groups)) return groups;
+  const doc = ctx.document as { positionAt: (offset: number) => unknown; getText: (range?: unknown) => string } | undefined;
+  const vsc = loadShimmedVscode() as { Range: new (start: unknown, end: unknown) => unknown };
+  if (!doc || !vsc) return groups;
+
+  return groups.map((g: Record<string, unknown>) => {
+    if (!g || typeof g !== 'object') return g;
+    const range = g.range as { start: unknown; end: unknown } | undefined;
+    let legacyRange: unknown = range;
+    let matchedText = g.matchedText as string | undefined;
+    if (range && typeof range.start === 'number' && typeof range.end === 'number') {
+      legacyRange = new vsc.Range(doc.positionAt(range.start), doc.positionAt(range.end));
+      if (!matchedText) {
+        matchedText = doc.getText(legacyRange);
+      }
+    }
+    return {
+      ...g,
+      range: legacyRange,
+      matchedText: matchedText ?? g.originalText,
+      i18nValue: g.i18nValue ?? g.originalText,
+      i18nKey: g.i18nKey ?? g.key,
+      overwriteText: g.overwriteText ?? g.replacementText,
+      type: g.type ?? (
+        (g.key || g.i18nKey) && !String(g.key ?? g.i18nKey).startsWith('i18n-fast-loading-')
+          ? 'exist'
+          : 'new'
+      ),
+    };
+  });
+}
+
 function adaptLegacyHookModule(module: Record<string, unknown>) {
+  const matchFn = (module.mcpMatch ?? module.match) as ((ctx: Record<string, unknown>) => unknown) | undefined;
   return {
     ...module,
-    match: typeof module.match === 'function'
-      ? (ctx: Record<string, unknown>) => (module.match as (ctx: Record<string, unknown>) => unknown)(ctx)
+    match: typeof matchFn === 'function'
+      ? (ctx: Record<string, unknown>) => matchFn(ctx)
       : undefined,
     convert: typeof module.convert === 'function'
-      ? (_groups: unknown, ctx: Record<string, unknown>) => (module.convert as (ctx: Record<string, unknown>) => unknown)(ctx)
+      ? (_groups: unknown, ctx: Record<string, unknown>) => {
+          const legacyGroups = coreGroupsToLegacy(ctx.convertGroups ?? _groups, ctx);
+          return (module.convert as (ctx: Record<string, unknown>) => unknown)({ ...ctx, convertGroups: legacyGroups });
+        }
       : undefined,
     write: typeof module.write === 'function'
-      ? (_groups: unknown, ctx: Record<string, unknown>) => (module.write as (ctx: Record<string, unknown>) => unknown)(ctx)
+      ? (_groups: unknown, ctx: Record<string, unknown>) => {
+          const legacyGroups = coreGroupsToLegacy(ctx.convertGroups ?? _groups, ctx);
+          return (module.write as (ctx: Record<string, unknown>) => unknown)({ ...ctx, convertGroups: legacyGroups });
+        }
       : undefined,
     collectI18n: typeof module.collectI18n === 'function'
       ? (_content: string, filePath: string, ctx: Record<string, unknown>) => (module.collectI18n as (ctx: Record<string, unknown>) => unknown)({
           ...ctx,
           i18nFileUri: (loadShimmedVscode() as typeof import('vscode')).Uri.file(filePath),
+          i18nContent: _content,
         })
       : undefined,
   };
@@ -107,6 +160,16 @@ export async function buildRuntime(host: Host): Promise<McpRuntime> {
       _: lodash,
       babel: { ...babelParser, traverse },
       UnsupportedInMcpError,
+      safeCall,
+      asyncSafeCall,
+      getICUMessageFormatAST,
+      convert2pinyin,
+      isInJsxElement,
+      isInJsxAttribute,
+      setLoading,
+      getLoading,
+      showMessage: buildShowMessage(host),
+      getConfig: buildGetConfig(readConfig),
     }),
     adaptModule: (module) => adaptLegacyHookModule(module as Record<string, unknown>) as any,
   });

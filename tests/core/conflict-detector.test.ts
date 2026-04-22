@@ -25,7 +25,7 @@ describe('detectConflicts', () => {
     expect(reports[0].resolution).toBe('reuse:I18N.a');
   });
 
-  it('leaves multiple smart matches unresolved', () => {
+  it('reuses first match when multiple smart matches exist', () => {
     const reports = detectConflicts([group('1', '添加')], cacheWith([
       { key: 'I18N.a', text: '添加' },
       { key: 'I18N.b', text: '添加' },
@@ -33,7 +33,7 @@ describe('detectConflicts', () => {
       policy: 'smart',
       resolutions: {},
     });
-    expect(reports[0].resolution).toBeUndefined();
+    expect(reports[0].resolution).toBe('reuse:I18N.a');
   });
 
   it('honors an explicit picker resolution', () => {

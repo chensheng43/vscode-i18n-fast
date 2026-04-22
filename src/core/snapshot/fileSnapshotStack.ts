@@ -36,6 +36,10 @@ export class FileSnapshotStack {
     }
   }
 
+  currentRecords(): ReadonlyMap<string, string> | undefined {
+    return this.current?.records;
+  }
+
   seal(): string {
     if (!this.current) {
       throw new Error('FileSnapshotStack.seal called before next()');
