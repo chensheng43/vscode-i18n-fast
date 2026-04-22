@@ -209,7 +209,9 @@ export function buildWriteFileByEditor(
       return true;
     }
 
-    const current = await host.readFile(fsPath);
+    const current = (trackedPath && contentRef && fsPath === trackedPath)
+      ? contentRef.value
+      : await host.readFile(fsPath);
     const edits = contentOrList
       .map((edit) => {
         const range = edit.range;
