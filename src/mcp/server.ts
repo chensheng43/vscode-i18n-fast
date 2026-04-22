@@ -40,6 +40,7 @@ async function main() {
       keys: z.array(z.string()).optional(),
       text: z.string().optional(),
       locale: z.string().optional(),
+      exclude_keys: z.array(z.string()).optional().describe('排除指定 key，不出现在结果中'),
     },
   }, async (args) => ({
     content: [{ type: 'text', text: JSON.stringify(await handleQueryI18n(runtime, args)) }],

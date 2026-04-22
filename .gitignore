@@ -107,3 +107,7 @@ out/
 *.vsix
 token.txt
 explore-extension/
+
+# Local MCP / Claude config
+.mcp.json
+.claude/

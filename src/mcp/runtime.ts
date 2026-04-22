@@ -15,6 +15,7 @@ import type { Host } from '@core/host';
 import type { ResolvedConfig } from '@core/types';
 
 import { UnsupportedInMcpError } from './vscodeShim';
+import { parseJsonc } from './parseJsonc';
 
 declare const __non_webpack_require__: NodeRequire;
 
@@ -73,7 +74,7 @@ export async function buildRuntime(host: Host): Promise<McpRuntime> {
   let raw: Record<string, unknown> = {};
   if (await host.exists(configPath)) {
     try {
-      raw = JSON.parse(await host.readFile(configPath)) as Record<string, unknown>;
+      raw = parseJsonc(await host.readFile(configPath)) as Record<string, unknown>;
     } catch {
       raw = {};
     }
